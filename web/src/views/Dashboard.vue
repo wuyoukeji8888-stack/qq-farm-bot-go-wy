@@ -23,17 +23,19 @@ async function loadAppInfo() {
     if (data && data.ok && data.data) {
       appVersion.value = data.data.version || 'dev'
       const bt = data.data.buildTime
-      if (bt) {
-        // buildTime 格式：2026-09-25T19:20:00Z（UTC），转为北京时间 +8h 后格式化
+      // buildTime 格式：2026-09-25T19:20:00Z（UTC），只在合法日期时显示
+      if (bt && bt !== 'dev') {
         const d = new Date(bt)
-        const offset = d.getTime() + 8 * 3600000
-        const dt = new Date(offset)
-        const y = dt.getUTCFullYear()
-        const m = String(dt.getUTCMonth() + 1).padStart(2, '0')
-        const day = String(dt.getUTCDate()).padStart(2, '0')
-        const h = String(dt.getUTCHours()).padStart(2, '0')
-        const min = String(dt.getUTCMinutes()).padStart(2, '0')
-        appBuildTime.value = `${y}${m}${day}${h}${min}`
+        if (!isNaN(d.getTime())) {
+          const offset = d.getTime() + 8 * 3600000 // UTC+8 北京时间
+          const dt = new Date(offset)
+          const y = dt.getUTCFullYear()
+          const m = String(dt.getUTCMonth() + 1).padStart(2, '0')
+          const day = String(dt.getUTCDate()).padStart(2, '0')
+          const h = String(dt.getUTCHours()).padStart(2, '0')
+          const min = String(dt.getUTCMinutes()).padStart(2, '0')
+          appBuildTime.value = `${y}${m}${day}${h}${min}`
+        }
       }
     }
   } catch (_) { /* 版本信息加载失败不影响主流程 */ }
