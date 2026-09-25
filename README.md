@@ -1,20 +1,31 @@
-本项目为二改，原项目：https://github.com/Aoluis1005/QQ-farm-BOT-GO 
+# QQ农场自动化助手（Go 版）
+
+本项目为二改，原项目：https://github.com/Aoluis1005/QQ-farm-BOT-GO
+
+## 功能亮点
+
+- **多账号管理**：支持添加多个账号，统一界面管理
+- **自动巡查**：自动偷菜、帮忙、收菜，省时省力
+- **活动中心**：查看活动状态，一键领取秋祈良愿、快乐不独享等奖励
+- **Web 管理面板**：响应式设计，支持移动端访问
+- **一键部署**：install.sh 脚本自动安装依赖、编译前后端
+- **Docker 支持**：docker-compose 一键启动，数据持久化
 
 ### 一键部署（推荐，Rocky Linux 9.6 / Debian / Ubuntu）
-root 执行即可。Rocky 9 走 dnf，脚本会安装 Go 1.25 与 Node 22、2G 机自动加1G swap、编译前后端、装到 `/opt/go-farm-bot`、注册 systemd、放行 3009。
+root 执行即可。Rocky 9 走 dnf，脚本会安装 Go 1.25 与 Node 22、2G 机自动加 1G swap、编译前后端、装到 `/opt/go-farm-bot`、注册 systemd、放行 3009。
 
 ```bash
-git clone https://github.com/Aoluis1005/QQ-farm-BOT-GO.git
-cd QQ-farm-BOT-GO
+git clone https://github.com/wuyoukeji8888-stack/qq-farm-bot-go-wy.git
+cd qq-farm-bot-go-wy
 bash install.sh
 ```
 
-部署完成后打开 **`http://<服务器IP>:3009`云厂商安全组也要放行 TCP 3009。
+部署完成后打开 **`http://<服务器 IP>:3009`**，注意云厂商安全组也要放行 TCP 3009。
 
 **后续更新**同样是这两步，脚本会自己先停服务再覆盖、装完自动拉起，不用手动 `systemctl stop`：
 
 ```bash
-cd QQ-farm-BOT-GO
+cd qq-farm-bot-go-wy
 git pull
 sudo bash install.sh
 ```
@@ -47,6 +58,8 @@ docker run -d --name go-farm-bot -p 3009:3009 -e ADMIN_PORT=3009 \
 
 ### 编译
 ```bash
+# 注意：需先构建前端（web/dist），否则 embed 会失败
+cd web && npm ci && npm run build && cd ..
 # Go 1.20+
 CGO_ENABLED=0 go build -o go-farm-bot .
 ```
@@ -90,3 +103,4 @@ sudo systemctl enable --now go-farm-bot
 
 ## 📝 相关项目
 - 本项目为二改，原项目：https://github.com/Aoluis1005/QQ-farm-BOT-GO  —— 本项目的协议参考与功能对照
+- 当前仓库：https://github.com/wuyoukeji8888-stack/qq-farm-bot-go-wy

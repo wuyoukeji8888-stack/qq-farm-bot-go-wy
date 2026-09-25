@@ -97,7 +97,9 @@ install_node() {
   fi
   echo "  安装 Node ${NODE_VER}..."
   mkdir -p /usr/local
-  curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-linux-x64.tar.xz" -o /tmp/node.tar.xz
+  # 优先使用国内镜像，避免 nodejs.org 直链下载超时
+  local node_url="https://npmmirror.com/mirrors/node/v${NODE_VER}/node-v${NODE_VER}-linux-x64.tar.xz"
+  curl -fsSL --connect-timeout 10 --max-time 120 "$node_url" -o /tmp/node.tar.xz
   tar -C /usr/local --strip-components=1 -xJf /tmp/node.tar.xz
   hash -r || true
   echo "  Node: $(node -v)  npm: $(npm -v)"

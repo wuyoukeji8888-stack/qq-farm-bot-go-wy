@@ -23,10 +23,11 @@ import (
 // 禁止并发（游戏内容相关，均顺序单发）。
 
 const (
-	actSvc   = "gamepb.activitypb.ActivityService"
-	seasonSvc = "gamepb.seasonpb.SeasonService"
-	solarSvc  = "gamepb.solartermspb.SolarTermsService"
-	shareSvc  = "gamepb.sharepb.ShareService"
+	actSvc         = "gamepb.activitypb.ActivityService"
+	seasonSvc      = "gamepb.seasonpb.SeasonService"
+	solarSvc       = "gamepb.solartermspb.SolarTermsService"
+	shareSvc       = "gamepb.sharepb.ShareService"
+	autoClaimBatch = 6
 )
 
 func registerActivityAPI(api *http.ServeMux) {
@@ -70,7 +71,19 @@ func registerActivityAPI(api *http.ServeMux) {
 	api.HandleFunc("/api/activity/honghua/love", handleHonghuaLove)   // 送出爱心值 cmd=36
 	api.HandleFunc("/api/activity/honghua/fund", handleHonghuaFund)   // 送出公益金 cmd=38（单账号仅1次+真实1元）
 	api.HandleFunc("/api/activity/honghua/claim", handleHonghuaClaim) // 领取奖励（daily/tier/settle，cmd 推断）
+
+	// 手动领取入口（快乐不独享 / 秋祈良愿）：先 list 找到活动组，再逐个 Operate 领取。
+	api.HandleFunc("/api/activity/auto-claim", handleActivityAutoClaim)
 }
+
+// 活动 ID 常量：秋祈良愿（20260924xx）/ 快乐不独享（20260925xx）
+const (
+	actAutumnPrayerRoot   = 2026092400 // 秋祈良愿根节点
+	actAutumnPrayerPrefix = 20260924   // 秋祈良愿前缀
+	actJoyShareRoot       = 2026092500 // 快乐不独享根节点
+	actJoySharePrefix     = 20260925   // 快乐不独享前缀
+	actManualClaimCmd     = 1          // 手动领取默认 cmd（待确认，先用 1 兜底）
+)
 
 // ----- List：活动列表 + 时间过滤 -----
 
@@ -1933,4 +1946,149 @@ func handleDebugItemUse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "hex": fmt.Sprintf("%X", body), "bodyLen": len(rep.Body), "respHex": fmt.Sprintf("%X", rep.Body)})
+}
+
+// ----- 手动领取：秋祈良愿 / 快乐不独享 -----
+//
+// 逻辑：
+//   1. 调用 ActivityService.List 找到 ID 前缀为 20260924 或 20260925 的活动组
+//   2. 对每个匹配的活动组调用 GetGroup 获取节点树
+//   3. 递归遍历节点，对 status=2（可领取）的子节点调用 Operate 领取
+//   4. 收集所有领取成功的奖励返回
+//
+// 请求参数：
+//   accountId  必填，账号 ID
+//   activityId 可选，指定某个活动组 ID（如 2026092400），不传则自动检测
+//   cmd        可选，Operate 命令号，默认 actManualClaimCmd
+func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	accountID := resolveAccountID(q.Get("accountId"))
+	if accountID == "" {
+		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
+		return
+	}
+	reqActivityID, _ := strconv.ParseInt(q.Get("activityId"), 10, 64)
+	cmd, _ := strconv.ParseInt(q.Get("cmd"), 10, 64)
+	if cmd == 0 {
+		cmd = actManualClaimCmd
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	// 1. List 活动
+	listBody, err := rpcRequest(ctx, accountID, actSvc, "List", []byte{}, 15*time.Second)
+	if err != nil {
+		writeJSONMap(w, "ok", false, "error", actErrMsg(err))
+		return
+	}
+	activities := ParseActivityList(listBody)
+
+	// 2. 筛选目标活动组
+	var targetRoots []*ActivityInfo
+	for _, act := range activities {
+		if reqActivityID > 0 {
+			if act.ID == reqActivityID || act.ID == reqActivityID-1 {
+				targetRoots = append(targetRoots, act)
+			}
+			continue
+		}
+		p := act.ID / 100
+		if p == actAutumnPrayerPrefix || p == actJoySharePrefix {
+			targetRoots = append(targetRoots, act)
+		}
+	}
+	if len(targetRoots) == 0 {
+		writeJSONMap(w, "ok", false, "error", "未找到秋祈良愿/快乐不独享活动")
+		return
+	}
+
+	// 3. 对每个目标活动组 GetGroup + 遍历节点 Operate 领取
+	var allRewards []map[string]interface{}
+	var activityResults []map[string]interface{}
+
+	for _, root := range targetRoots {
+		rootID := root.ID
+		result := map[string]interface{}{
+			"activityId": rootID,
+			"title":      root.Title,
+			"claimed":    []map[string]interface{}{},
+			"errors":     []string{},
+		}
+
+		// GetGroup
+		gb := proto.NewBuilder()
+		gb.FieldInt64(1, rootID)
+		gb.FieldString(2, "")
+		gbody, err := rpcRequest(ctx, accountID, actSvc, "GetGroup", gb.Bytes(), 15*time.Second)
+		if err != nil {
+			result["errors"] = append(result["errors"].([]string), "GetGroup:"+actErrMsg(err))
+			activityResults = append(activityResults, result)
+			continue
+		}
+		rootNode := ParseActivityGroup(gbody)
+		if rootNode == nil {
+			result["errors"] = append(result["errors"].([]string), "GetGroup返回空节点")
+			activityResults = append(activityResults, result)
+			continue
+		}
+
+		// 遍历子节点，对可领取的调用 Operate
+		var claimed []map[string]interface{}
+		var walk func(n *ActivityNode, parentID int64)
+		walk = func(n *ActivityNode, parentID int64) {
+			if n == nil || n.Info == nil {
+				return
+			}
+			// 对可领取的子节点（status=2）进行领取
+			if n.Info.ID != rootID && n.Info.Status == 2 && n.Info.ID%100 != 0 {
+				ob := proto.NewBuilder()
+				ob.FieldInt64(1, n.Info.ID)
+				ob.FieldInt64(2, cmd)
+				obBody, err := rpcRequest(ctx, accountID, actSvc, "Operate", ob.Bytes(), 15*time.Second)
+				if err != nil {
+					es := actErrMsg(err)
+					// 幂等："无可领取"或已领取的错误视为成功
+					if !strings.Contains(es, "无可领取") && !strings.Contains(es, "已领取") && !strings.Contains(es, "重复") {
+						result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Operate(id=%d,cmd=%d):%s", n.Info.ID, cmd, es))
+					}
+				} else {
+					// 领取成功，收集奖励
+					rewards := parseActRewardField(obBody, 126)
+					if len(rewards) == 0 {
+						// 尝试从 field1 取 Item 列表
+						for _, r := range actBytesAll(readActFields(obBody), 1) {
+							it := parseItem(r)
+							if it != nil {
+								rewards = append(rewards, map[string]interface{}{"id": it.ItemID, "count": it.Count})
+							}
+						}
+					}
+					claimed = append(claimed, map[string]interface{}{
+						"id":      n.Info.ID,
+						"title":   n.Info.Title,
+						"rewards": rewards,
+					})
+				}
+			}
+			for _, ch := range n.Children {
+				walk(ch, n.Info.ID)
+			}
+		}
+		walk(rootNode, 0)
+
+		result["claimed"] = claimed
+		allRewards = append(allRewards, map[string]interface{}{
+			"activityId": rootID,
+			"title":      root.Title,
+			"claimed":    claimed,
+		})
+		activityResults = append(activityResults, result)
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"ok":      true,
+		"account": accountID,
+		"results": activityResults,
+		"cmd":     cmd,
+	})
 }

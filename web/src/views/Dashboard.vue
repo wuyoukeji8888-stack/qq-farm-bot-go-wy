@@ -14,6 +14,30 @@ const patrol = ref({ steal: {}, help: {}, farm: {} })
 const logs = ref([])
 const loading = ref(false)
 const fert = ref({ normal: 0, organic: 0, cap: 999 }) // 化肥容器（小时）
+const appVersion = ref('dev')  // 助手版本号（build version）
+const appBuildTime = ref('')   // 助手构建时间（格式化后）
+
+async function loadAppInfo() {
+  try {
+    const { data } = await api.get('/api/health')
+    if (data && data.ok && data.data) {
+      appVersion.value = data.data.version || 'dev'
+      const bt = data.data.buildTime
+      if (bt) {
+        // buildTime 格式：2026-09-25T19:20:00Z（UTC），转为北京时间 +8h 后格式化
+        const d = new Date(bt)
+        const offset = d.getTime() + 8 * 3600000
+        const dt = new Date(offset)
+        const y = dt.getUTCFullYear()
+        const m = String(dt.getUTCMonth() + 1).padStart(2, '0')
+        const day = String(dt.getUTCDate()).padStart(2, '0')
+        const h = String(dt.getUTCHours()).padStart(2, '0')
+        const min = String(dt.getUTCMinutes()).padStart(2, '0')
+        appBuildTime.value = `${y}${m}${day}${h}${min}`
+      }
+    }
+  } catch (_) { /* 版本信息加载失败不影响主流程 */ }
+}
 
 const INC_MAP = {
   收获: 'harvest', 偷菜: 'steal', 种植: 'plant', 施肥: 'fertilize', 浇水: 'water',
@@ -53,6 +77,7 @@ async function load() {
   } finally {
     loading.value = false
   }
+  loadAppInfo() // 版本信息可异步，不阻塞主数据
 }
 
 function fmtNum(n) { return n == null ? '--' : Number(n).toLocaleString() }
@@ -225,6 +250,7 @@ onUnmounted(() => {
             <div class="pc-name">{{ profile.name || '未登录' }}</div>
             <div class="pc-uid">UID · {{ profile.uid || '—' }}</div>
             <div class="pc-exp">经验 <b>{{ fmtNum(profile.exp) }} / {{ fmtNum(profile.expMax) }}</b></div>
+            <div v-if="appBuildTime" class="pc-ver">助手版本：{{ appBuildTime }}</div>
             <span class="pc-lvl">Lv.{{ profile.level || '—' }}</span>
           </div>
         </div>

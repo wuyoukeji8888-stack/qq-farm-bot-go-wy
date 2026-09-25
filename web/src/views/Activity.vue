@@ -582,6 +582,20 @@ function honghuaClaim(kind, tier) { honghuaDo('claim', Object.assign({ kind }, t
 
 const curPanel = computed(() => panels.value[panelIdx.value] || null)
 
+// 手动领取：当前活动组是否为目标活动
+const AUTO_CLAIM_PREFIXES = [20260924, 20260925] // 秋祈良愿/快乐不独享
+const isAutoClaimGroup = computed(() => {
+  if (!groups.value || groupIdx.value < 0 || groupIdx.value >= groups.value.length) return false
+  const g = groups.value[groupIdx.value]
+  if (!g || !g.id) return false
+  const prefix = Math.floor(g.id / 100)
+  return AUTO_CLAIM_PREFIXES.includes(prefix)
+})
+const currentGroupTitle = computed(() => {
+  if (!groups.value || groupIdx.value < 0 || groupIdx.value >= groups.value.length) return ''
+  return groups.value[groupIdx.value]?.title || ''
+})
+
 function n(v) { return v == null ? 0 : (Number(v) || 0) }
 // 大数友好缩写：≥1亿→X.XX亿，≥1万→X.X万，否则千分位（避免上亿余额文字过长）
 function fmtBig(n) {
@@ -844,6 +858,33 @@ async function qmBrew() {
   } catch (e) { loading.value = false; app.error('酿制失败') }
 }
 
+/* ---------- 手动领取：秋祈良愿 / 快乐不独享 ---------- */
+async function autoClaimActivity(actId = null) {
+  loading.value = true
+  try {
+    const { data } = await api.post('/api/activity/auto-claim', null, {
+      params: { activityId: actId }
+    })
+    loading.value = false
+    if (!(data && data.ok)) { 
+      app.error((data && data.error) || '自动领取失败'); 
+      return
+    }
+    app.success('自动领取完成')
+    // 刷新相关面板数据
+    await Promise.all([
+      loadGift(),      // 观星
+      loadShop(),      // 商店
+      loadPet(),       // 萌宠
+      api.get('/api/activity/season').then(r => { if (r.data && r.data.ok) view.season = r.data.data || null }), // 千星
+      api.get('/api/activity/solar').then(r => { if (r.data && r.data.ok) view.solar = r.data.data || null })   // 节令
+    ]).catch(() => {})
+  } catch (e) { 
+    loading.value = false; 
+    app.error('自动领取失败') 
+  }
+}
+
 /* ---------- 千星游记 领取 ---------- */
 async function claimSeason() {
   const pp = (view.season && view.season.passport) || {}
@@ -897,6 +938,18 @@ onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) }
         :class="{ active: i === groupIdx }"
         @click="selectGroup(i)"
       >{{ g.title }}</button>
+    </div>
+
+    <!-- 手动领取按钮（秋祈良愿/快乐不独享） -->
+    <div v-if="isAutoClaimGroup" class="act-card" style="margin-bottom:12px">
+      <div class="act-card-hd">
+        <h4>🎁 {{ currentGroupTitle }}</h4>
+        <span class="act-badge">手动领取</span>
+      </div>
+      <div class="act-hint">点按下方按钮自动领取该活动全部可领奖励</div>
+      <div class="act-actions">
+        <button class="act-btn" :disabled="loading" @click="autoClaimActivity">{{ loading ? '⏳ 领取中…' : '✨ 一键领取全部' }}</button>
+      </div>
     </div>
 
     <!-- 面板 tab -->
