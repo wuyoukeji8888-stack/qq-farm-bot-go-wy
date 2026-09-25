@@ -1,8 +1,8 @@
 package main
 
 import (
-	"crypto/rand"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -71,7 +73,7 @@ func main() {
 	gwCfg := models.GetGatewayConfig()
 	adminPort := gwCfg.AdminPort
 	if adminPort == 0 {
-		adminPort = 3007
+		adminPort = 3009
 	}
 
 	mux := http.NewServeMux()
@@ -147,6 +149,23 @@ func main() {
 
 	// 游戏静态资源（种子/作物图片等）：/game-config/** → game-config/ 目录
 	mux.Handle("/game-config/", http.StripPrefix("/game-config/", http.FileServer(http.Dir("game-config"))))
+
+	// 内置 YYB 的 /qr/**（二维码图片、轮询、确认）：转发到内嵌 YYB 服务。
+	// 随机监听端口无法预绑定，改为请求时动态重建反向代理，避免并发竞争。
+	mux.Handle("/qr/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if embeddedYybBaseURL == "" {
+			http.Error(w, "YYB 服务未就绪", http.StatusServiceUnavailable)
+			return
+		}
+		target, err := url.Parse(embeddedYybBaseURL)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/qr")
+		proxy.ServeHTTP(w, r)
+	}))
 
 	// 根路径：serve 嵌入的前端静态产物（Vue 构建的 web/dist），带 SPA history 回退。
 	distSub, err := fs.Sub(webDistFS, "web/dist")

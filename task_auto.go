@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,7 +20,7 @@ const illustratedTicketItemID = 500
 func runTaskAuto(accountID string, c *gw.Client) {
 	// 父 ctx 需覆盖整条序列：TaskInfo + 逐个领取(每个 300ms 间隔) + 活跃奖励 + 图鉴奖励(2×背包查询)。
 	// 原先 20s 会在任务较多时把后续 RPC 全部截断（Node 每个 RPC 独立超时、无整体上限）。
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	body, err := rpcRequest(ctx, accountID, taskSvc, "TaskInfo", []byte{}, 20*time.Second)
 	if err != nil {
@@ -59,6 +60,10 @@ func runTaskAuto(accountID string, c *gw.Client) {
 	// 图鉴奖励（点券）仅在点券真实到账时记日志
 	if ticketGain := claimIllustratedRewardsGo(ctx, accountID, c); ticketGain > 0 {
 		appendOpLog(accountID, "task", fmt.Sprintf("自动领取图鉴奖励：点券+%d", ticketGain))
+	}
+	// 进行中活动奖励（千星游记 / 节令小礼 / 观星礼录 / 萌宠手记 / 萌宠种子礼包），10 分钟冷却
+	if actN := claimOngoingActivityRewardsGo(ctx, accountID); actN > 0 {
+		appendOpLog(accountID, "task", fmt.Sprintf("自动领取 %d 项活动奖励", actN))
 	}
 }
 
@@ -502,3 +507,137 @@ var (
 	monthCardDoneDate = map[string]string{} // accountID -> 已领日期
 	vipDoneDate       = map[string]string{} // accountID -> 已领日期
 )
+
+// 进行中活动奖励领取冷却：任务循环约 30s 一次，活动 RPC 较重，按账号 10 分钟最多打一轮。
+const activityRewardCooldown = 10 * time.Minute
+
+var (
+	actRewardMu      sync.Mutex
+	actRewardLastAt  = map[string]time.Time{}
+)
+
+// claimOngoingActivityRewardsGo 领取现存活动可领奖励：千星游记、节令小礼、观星礼录、S3 萌宠手记。
+// 只领明确可领的奖励档位，不投喂/寻宝/兑换。返回成功领取的项数。
+func claimOngoingActivityRewardsGo(ctx context.Context, accountID string) int {
+	actRewardMu.Lock()
+	last := actRewardLastAt[accountID]
+	if !last.IsZero() && time.Since(last) < activityRewardCooldown {
+		actRewardMu.Unlock()
+		return 0
+	}
+	actRewardLastAt[accountID] = time.Now()
+	actRewardMu.Unlock()
+
+	n := 0
+	n += claimSeasonRewardsGo(ctx, accountID)
+	n += claimSolarRewardsGo(ctx, accountID)
+	n += claimGuanxingRewardsGo(ctx, accountID)
+	n += claimPetStoryRewardsGo(ctx, accountID)
+	n += claimPetSeedsGo(ctx, accountID)
+	return n
+}
+
+func claimSeasonRewardsGo(ctx context.Context, accountID string) int {
+	body, err := rpcRequest(ctx, accountID, seasonSvc, "GetSeasonInfo", []byte{}, 15*time.Second)
+	if err != nil {
+		return 0
+	}
+	info := ParseSeason(body)
+	if info == nil || info.Passport == nil || info.Passport.ClaimableLevels <= 0 {
+		return 0
+	}
+	if _, err := rpcRequest(ctx, accountID, seasonSvc, "ClaimBattlePassRewards", []byte{}, 15*time.Second); err != nil {
+		return 0
+	}
+	return 1
+}
+
+func claimSolarRewardsGo(ctx context.Context, accountID string) int {
+	body, err := rpcRequest(ctx, accountID, solarSvc, "GetSolarTerms", []byte{}, 15*time.Second)
+	if err != nil {
+		return 0
+	}
+	info := ParseSolar(body)
+	if info == nil || info.ClaimableCount <= 0 {
+		return 0
+	}
+	claimed := 0
+	for _, term := range info.Terms {
+		if term == nil || !term.Claimable || term.ID <= 0 {
+			continue
+		}
+		b := proto.NewBuilder()
+		b.FieldInt64(1, term.ID)
+		if _, err := rpcRequest(ctx, accountID, solarSvc, "ClaimSolarTerms", b.Bytes(), 15*time.Second); err == nil {
+			claimed++
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return claimed
+}
+
+func claimGuanxingRewardsGo(ctx context.Context, accountID string) int {
+	gb := proto.NewBuilder()
+	gb.FieldInt64(1, guanxingActivityID)
+	gb.FieldString(2, "")
+	body, err := rpcRequest(ctx, accountID, actSvc, "GetGroup", gb.Bytes(), 15*time.Second)
+	if err != nil {
+		return 0
+	}
+	info := ParseConstellation(body)
+	if info == nil || info.Summary.ClaimableCount <= 0 {
+		return 0
+	}
+	ob := proto.NewBuilder()
+	ob.FieldInt64(1, guanxingActivityID)
+	ob.FieldInt64(2, guanxingClaimCmd)
+	ob.FieldBytes(guanxingExtField, []byte{})
+	if _, err := rpcRequest(ctx, accountID, actSvc, "Operate", ob.Bytes(), 15*time.Second); err != nil {
+		es := actErrMsg(err)
+		if strings.Contains(es, itoa(guanxingNoReward)) || strings.Contains(es, "无可领取") {
+			return 0
+		}
+		return 0
+	}
+	return 1
+}
+
+func claimPetStoryRewardsGo(ctx context.Context, accountID string) int {
+	body, err := petFetchGroupRaw(ctx, accountID, 15*time.Second)
+	if err != nil {
+		return 0
+	}
+	st := petBuildState(ctx, accountID, body)
+	if st == nil || !st.Active {
+		return 0
+	}
+	claimed := 0
+	for _, s := range st.Stories {
+		if s == nil || !s.Unlocked || s.Claimed || s.Order <= 0 {
+			continue
+		}
+		sub := proto.NewBuilder()
+		sub.FieldInt64(1, s.Order)
+		b := proto.NewBuilder()
+		b.FieldInt64(1, petPetID)
+		b.FieldInt64(2, petOpClaimStory)
+		b.FieldMessage(132, sub.Bytes())
+		if _, err := rpcRequest(ctx, accountID, actSvc, "Operate", b.Bytes(), 15*time.Second); err == nil {
+			claimed++
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return claimed
+}
+
+// claimPetSeedsGo 领取萌宠种子礼包（S3 萌宠活动）。
+// 每日只领一次，10 分钟冷却由 claimOngoingActivityRewardsGo 控制。
+func claimPetSeedsGo(ctx context.Context, accountID string) int {
+	b := proto.NewBuilder()
+	b.FieldInt64(1, petPetID)
+	b.FieldInt64(2, petOpSeeds)
+	if _, err := rpcRequest(ctx, accountID, actSvc, "Operate", b.Bytes(), 15*time.Second); err == nil {
+		return 1
+	}
+	return 0
+}

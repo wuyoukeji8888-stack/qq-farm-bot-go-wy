@@ -168,6 +168,9 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 		if !show {
 			continue
 		}
+		if expiredActivityID(it.ID) && (scope == "ongoing" || scope == "upcoming") {
+			continue
+		}
 		out = append(out, &outItem{
 			ID: it.ID, Title: it.Title, StartTime: it.StartTime, EndTime: it.EndTime,
 			Group: it.ID%100 == 0, Ongoing: ongoing, Upcoming: upcoming, Finished: finished,
@@ -177,6 +180,15 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 		actCacheSet(key, b, actListTTL)
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "account": accountID, "now": now, "scope": scope, "items": out})
+}
+
+// expiredActivityID 已结束的硬编码活动（鹊桥 / 雨落 / 青梅 / 公益小红花），进行中列表不再展示。
+func expiredActivityID(id int64) bool {
+	switch id / 100 {
+	case 20260818, 20260703, 20260812, 20260909:
+		return true
+	}
+	return false
 }
 
 // outItem 活动列表条目（包级：便于 list 缓存反序列化）

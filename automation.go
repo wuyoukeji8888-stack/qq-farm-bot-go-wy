@@ -1096,7 +1096,7 @@ func pickBagSeedByID(accountID string, c *gw.Client, seedID int64) (int64, bool)
 		if it.ID != seedID || it.Count <= 0 || !isSeedItemID(it.ID) {
 			continue
 		}
-		pe, ok := seedToPlantMap[int(it.ID)]
+		pe, ok := plantForSeed(int(it.ID))
 		if !ok || pe.Size != 1 {
 			continue
 		}
@@ -1250,9 +1250,7 @@ func pickBagSeed(accountID string, c *gw.Client, cfg config.AccountConfig) (int6
 		}
 		// 背包已有种子全部参与种植（含活动种子）不再排除活动种子/黑名单；
 		// 事件种子商店买不到，应只在其不在背包时走商店排除。
-		// 背包物品是种子，须按 seed_id 查 Plant.json；
-		// 误用 getPlantByID(plant.id) 会在 plant.id != seed_id 时漏掉该种子。
-		pe, ok := seedToPlantMap[int(it.ID)]
+		pe, ok := plantForSeed(int(it.ID))
 		if !ok || pe.Size != 1 {
 			continue
 		}
@@ -1355,8 +1353,7 @@ func listBagSeeds(accountID string, c *gw.Client, cfg config.AccountConfig, size
 		if it.ID <= 0 || it.Count <= 0 || !isSeedItemID(it.ID) {
 			continue
 		}
-		// 背包已有种子全部参与种植（含活动种子）不再排除活动种子/黑名单
-		pe, ok := seedToPlantMap[int(it.ID)]
+		pe, ok := plantForSeed(int(it.ID))
 		if !ok || pe.Size != size {
 			continue
 		}

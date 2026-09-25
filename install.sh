@@ -1,88 +1,214 @@
 #!/usr/bin/env bash
 # ============================================================
-#  QQ Farm Bot GO 一键部署脚本
+#  QQ Farm Bot GO 一键部署
 #
-#  用法:  sudo bash install.sh
+#  用法（root）:  bash install.sh
 #
-#  脚本会自动完成:
-#    1. 构建前端（保证 embed 进二进制的是仓库当前版本，杜绝旧 dist 导致的样式丢失）
-#    2. 编译后端程序
-#    3. 安装到 /opt/go-farm-bot（自动带上 game-config 图片素材）
-#    4. 注册并启动 systemd 服务
-#    5. 打印访问地址
-#  用户无需配置任何东西，部署完即可使用。
+#  适配：Rocky Linux 9.x（dnf）以及 Debian/Ubuntu（apt）
+#  目标机建议：2C2G、端口 3009、工作目录 /opt/go-farm-bot
 # ============================================================
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
 SRC="$(pwd)"
 DES=/opt/go-farm-bot
+GO_VER="1.25.0"
+NODE_VER="22.20.0"
+ADMIN_PORT="${ADMIN_PORT:-3009}"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "请用 root 运行: bash install.sh"
+  exit 1
+fi
 
 echo "=========================================="
 echo " QQ Farm Bot GO 一键部署"
+echo " 源码: $SRC"
+echo " 安装: $DES"
+echo " 端口: $ADMIN_PORT"
 echo "=========================================="
 
-# ---- 1. 构建前端（强制，不复用旧产物） ----
-echo "[1/5] 构建前端..."
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "  未检测到 Node.js，尝试自动安装..."
-  sudo apt-get update -y >/dev/null 2>&1 || true
-  sudo apt-get install -y nodejs npm >/dev/null 2>&1 || { echo "Node.js 安装失败，无法构建前端"; exit 1; }
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+pkg_install() {
+  if have_cmd dnf; then
+    dnf install -y "$@"
+  elif have_cmd yum; then
+    yum install -y "$@"
+  elif have_cmd apt-get; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y "$@"
+  else
+    echo "未找到 dnf/yum/apt-get"
+    exit 1
+  fi
+}
+
+# 2G 内存编译前端+Go 可能吃紧，内存不足时加 1G swap
+ensure_swap() {
+  local mem_kb
+  mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+  if [ "${mem_kb:-0}" -ge 3500000 ]; then
+    return 0
+  fi
+  if [ "$(awk '/SwapTotal/ {print $2}' /proc/meminfo)" -ge 500000 ]; then
+    return 0
+  fi
+  if [ -f /swapfile-farmbot ]; then
+    swapon /swapfile-farmbot 2>/dev/null || true
+    return 0
+  fi
+  echo "  内存较小，创建 1G swap..."
+  dd if=/dev/zero of=/swapfile-farmbot bs=1M count=1024 status=none
+  chmod 600 /swapfile-farmbot
+  mkswap /swapfile-farmbot >/dev/null
+  swapon /swapfile-farmbot
+}
+
+install_go() {
+  local cur=""
+  if have_cmd go; then
+    cur=$(go env GOVERSION 2>/dev/null || true)
+  fi
+  case "$cur" in
+    go1.25*) echo "  Go 已就绪: $cur"; return 0 ;;
+  esac
+  echo "  安装 Go ${GO_VER}..."
+  mkdir -p /usr/local
+  if [ -d /usr/local/go ]; then
+    mv /usr/local/go "/usr/local/go.bak.$(date +%s)"
+  fi
+  curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-amd64.tar.gz" -o /tmp/go.tgz
+  tar -C /usr/local -xzf /tmp/go.tgz
+  ln -sf /usr/local/go/bin/go /usr/local/bin/go
+  ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+  echo "  Go: $(go version)"
+}
+
+install_node() {
+  local major=""
+  if have_cmd node && have_cmd npm; then
+    major=$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)
+    if [ "${major:-0}" -ge 18 ]; then
+      echo "  Node 已就绪: $(node -v)"
+      return 0
+    fi
+  fi
+  echo "  安装 Node ${NODE_VER}..."
+  mkdir -p /usr/local
+  curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-linux-x64.tar.xz" -o /tmp/node.tar.xz
+  tar -C /usr/local --strip-components=1 -xJf /tmp/node.tar.xz
+  hash -r || true
+  echo "  Node: $(node -v)  npm: $(npm -v)"
+}
+
+# ---- 0. 基础依赖 ----
+echo "[0/6] 安装基础依赖..."
+pkg_install git curl tar xz unzip ca-certificates
+ensure_swap
+install_go
+install_node
+
+export PATH="/usr/local/go/bin:/usr/local/bin:$PATH"
+export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
+export GO111MODULE=on
+export CGO_ENABLED=0
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=768}"
+npm config set registry https://registry.npmmirror.com >/dev/null 2>&1 || true
+
+# 运行数据：有独立数据盘 /data 时放到数据盘
+DATA_HOME="/root"
+if [ -d /data ] && [ -w /data ]; then
+  mkdir -p /data/qq-farm-bot-home
+  DATA_HOME="/data/qq-farm-bot-home"
+  echo "  运行数据目录: $DATA_HOME/.qq-farm-bot"
 fi
+
+# ---- 1. 构建前端 ----
+echo "[1/6] 构建前端..."
 cd "$SRC/web"
-npm ci >/dev/null 2>&1 || npm install >/dev/null 2>&1
+if [ -f package-lock.json ]; then
+  npm ci || npm install
+else
+  npm install
+fi
 npm run build
 cd "$SRC"
 
-# ---- 2. 编译后端程序（每次都重新编译，确保 embed 的就是刚构建的前端） ----
-echo "[2/5] 编译程序..."
-if ! command -v go >/dev/null 2>&1; then
-  echo "  未检测到 Go，尝试自动安装..."
-  sudo apt-get update -y >/dev/null 2>&1 || true
-  sudo apt-get install -y golang-go >/dev/null 2>&1
-fi
-# 注入版本号（git 短哈希 + 构建时间）：让线上 /api/health 的版本能与源码 commit 互证
+# ---- 2. 编译后端 ----
+echo "[2/6] 编译程序..."
 VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
 printf 'package main\n\nvar buildVersion = "%s"\nvar buildTime = "%s"\n' \
   "$VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > version.go
 echo "  版本号: $VERSION"
-go build -o go-farm-bot .
+go build -ldflags="-s -w" -o go-farm-bot .
 BIN="$SRC/go-farm-bot"
 
-# ---- 3. 安装程序 + 图片素材 ----
-echo "[3/5] 安装程序与素材到 $DES ..."
-# 覆盖二进制前必须先停服务：Linux 拒绝写入正在执行的文件（Text file busy），不停会直接中断
+# ---- 3. 安装程序 + 素材 ----
+echo "[3/6] 安装到 $DES ..."
 if systemctl list-unit-files go-farm-bot.service >/dev/null 2>&1; then
-  sudo systemctl stop go-farm-bot 2>/dev/null || true
+  systemctl stop go-farm-bot 2>/dev/null || true
 fi
-sudo mkdir -p "$DES"
-sudo cp -rf "$BIN" "$SRC/game-config" "$DES/"
-sudo chmod +x "$DES/go-farm-bot"
+mkdir -p "$DES"
+cp -f "$BIN" "$DES/"
+chmod +x "$DES/go-farm-bot"
+cp -a "$SRC/game-config" "$DES/"
+if [ -d "$SRC/yyb-resource" ]; then
+  cp -a "$SRC/yyb-resource" "$DES/"
+else
+  mkdir -p "$DES/yyb-resource"
+fi
 
-# ---- 4. 注册系统服务 ----
-echo "[4/5] 注册并启动系统服务..."
-sudo tee /etc/systemd/system/go-farm-bot.service >/dev/null <<'SVC'
+# ---- 4. systemd ----
+echo "[4/6] 注册 systemd 服务..."
+cat >/etc/systemd/system/go-farm-bot.service <<SVC
 [Unit]
 Description=QQ Farm Bot Go
 After=network.target
+
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/go-farm-bot
 ExecStart=/opt/go-farm-bot/go-farm-bot
-Environment=ADMIN_PORT=3009
+Environment=ADMIN_PORT=${ADMIN_PORT}
+Environment=HOME=${DATA_HOME}
+Environment=GOPROXY=https://goproxy.cn,direct
 Restart=on-failure
 RestartSec=5
+LimitNOFILE=65535
+
 [Install]
 WantedBy=multi-user.target
 SVC
-sudo systemctl daemon-reload
-sudo systemctl enable go-farm-bot
-sudo systemctl restart go-farm-bot
+systemctl daemon-reload
+systemctl enable go-farm-bot
+systemctl restart go-farm-bot
 
-# ---- 5. 完成 ----
-echo "[5/5] 部署完成！"
+# ---- 5. 防火墙放行 3009 ----
+echo "[5/6] 放行端口 ${ADMIN_PORT}..."
+if have_cmd firewall-cmd && systemctl is-active --quiet firewalld; then
+  firewall-cmd --permanent --add-port="${ADMIN_PORT}/tcp" >/dev/null
+  firewall-cmd --reload >/dev/null
+  echo "  firewalld 已放行 ${ADMIN_PORT}/tcp"
+else
+  echo "  未检测到活动 firewalld，请确认云厂商安全组已放行 ${ADMIN_PORT}"
+fi
+
+# ---- 6. 健康检查 ----
+echo "[6/6] 检查服务..."
+sleep 2
+systemctl --no-pager --full status go-farm-bot | head -20 || true
+if curl -fsS "http://127.0.0.1:${ADMIN_PORT}/api/health" >/dev/null 2>&1; then
+  echo "  health 检查通过"
+else
+  echo "  health 暂未就绪，稍后执行: curl -s http://127.0.0.1:${ADMIN_PORT}/api/health"
+fi
+
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-echo "访问地址: http://${IP:-<服务器IP>}:3009"
 echo ""
-echo "提示: 后续更新可重新运行  sudo bash install.sh "
+echo "部署完成"
+echo "访问地址: http://${IP:-103.117.136.113}:${ADMIN_PORT}"
+echo "后续更新:  git pull && bash install.sh"
+echo "日志查看:  journalctl -u go-farm-bot -f"

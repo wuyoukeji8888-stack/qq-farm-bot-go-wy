@@ -643,28 +643,15 @@ async function loadActivity() {
     const { data } = await api.get('/api/activity/list', { params: { scope: 'ongoing' } })
     if (!(data && data.ok)) { err.value = (data && data.error) || '加载失败'; groups.value = []; panels.value = []; loading.value = false; return }
     let gs = (data.items || []).filter(i => i.group)
-    // 鹊桥寄情兜底：仅活动期内，若接口未返回（开发期/接口缺失）才硬塞进列表；活动结束后不再插入，由接口决定生命周期
-    if (Date.now() < QIXI_END && !gs.some(g => String(g.id).indexOf('20260818') === 0)) {
-      gs.unshift({ id: QIXI_ROOT_ID, title: '🌉 鹊桥寄情', group: true })
+    const expiredPrefix = (id) => {
+      const s = String(id)
+      return s.indexOf('20260818') === 0 || s.indexOf('20260703') === 0 || s.indexOf('20260812') === 0 || s.indexOf('20260909') === 0
     }
-    // 雨落成诗：列表返回 根+5子（均 20260703xx），折叠成单条入口；开服前则兜底插入便于预览
-    const yuluMatched = gs.filter(g => String(g.id).indexOf('20260703') === 0 || (g.title || '').indexOf('雨落') >= 0)
-    if (yuluMatched.length) {
-      const rep = yuluMatched.find(g => String(g.id) === '2026070300') || yuluMatched[0]
-      gs = gs.filter(g => !(String(g.id).indexOf('20260703') === 0 || (g.title || '').indexOf('雨落') >= 0))
-      gs.unshift({ id: rep.id, title: '🌧️ 雨落成诗', group: true })
-    } else if (Date.now() < YULU_END) {
-      gs.unshift({ id: YULU_ROOT_ID, title: '🌧️ 雨落成诗', group: true })
+    const expiredTitle = (t) => {
+      const s = t || ''
+      return s.indexOf('鹊') >= 0 || s.indexOf('雨落') >= 0 || s.indexOf('小红花') >= 0 || s.indexOf('公益') >= 0 || s.indexOf('青梅') >= 0 || s.indexOf('青酿') >= 0
     }
-    // 公益小红花：未开始（upcoming）不进 ongoing 列表，开服前兜底插入便于预览占位面板
-    const honghuaMatched = gs.filter(g => String(g.id).indexOf('20260909') === 0 || (g.title || '').indexOf('小红花') >= 0)
-    if (honghuaMatched.length) {
-      const rep = honghuaMatched.find(g => String(g.id) === String(HONGHUA_ROOT_ID)) || honghuaMatched[0]
-      gs = gs.filter(g => !(String(g.id).indexOf('20260909') === 0 || (g.title || '').indexOf('小红花') >= 0))
-      gs.unshift({ id: rep.id, title: '🌸 公益小红花', group: true })
-    } else if (Date.now() < HONGHUA_END) {
-      gs.unshift({ id: HONGHUA_ROOT_ID, title: '🌸 公益小红花', group: true })
-    }
+    gs = gs.filter(g => !expiredPrefix(g.id) && !expiredTitle(g.title))
     groups.value = gs
     if (!gs.length) { err.value = '当前没有进行中的活动'; panels.value = []; loading.value = false; return }
     if (groupIdx.value < 0 || groupIdx.value >= gs.length) groupIdx.value = 0
@@ -685,35 +672,6 @@ async function selectGroup(i) {
 
 async function loadGroup(group) {
   loading.value = true
-  // 鹊桥寄情：只加载玩法 tips（group?id=1801），不参与 season/shop/gift/solar 常规解析
-  if (String(group.id || '').indexOf('20260818') === 0 || (group.title || '').indexOf('鹊') >= 0) {
-    try {
-      const { data } = await api.get('/api/activity/group', { params: { id: QIXI_INFO_ID } })
-      if (!(data && data.ok)) { err.value = (data && data.error) || '加载失败'; panels.value = []; loading.value = false; return }
-      let pl = null
-      ;(function walk(x) { if (!x || pl) return; const inf = x.info || {}; if (inf.payload) pl = inf.payload; (x.children || []).forEach(walk) })(data.tree)
-      if (!parseQiXiTips(pl)) qixi.err = '玩法数据未就绪（活动 8/18 上线）'
-      panels.value = [{ key: 'qixi', title: '鹊桥寄情', icon: '🌉' }]
-      panelIdx.value = 0
-    } catch (e) { err.value = '加载失败'; panels.value = [] }
-    loading.value = false
-    return
-  }
-  // 雨落成诗：只加载状态（不参与常规 season/shop/gift/solar 解析）
-  if (String(group.id || '').indexOf('20260703') === 0 || (group.title || '').indexOf('雨落') >= 0) {
-    panels.value = [{ key: 'yulu', title: '雨落成诗', icon: '🌧️' }]
-    panelIdx.value = 0
-    loading.value = false
-    return
-  }
-  // 公益小红花：占位面板
-  if (String(group.id || '').indexOf('20260909') === 0 || (group.title || '').indexOf('小红花') >= 0 || (group.title || '').indexOf('公益') >= 0) {
-    panels.value = [{ key: 'honghua', title: '公益小红花', icon: '🌸' }]
-    panelIdx.value = 0
-    loading.value = false
-    await renderPanel(panels.value[0]) // 必须触发 loadHonghua，否则全服进度/爱心值永远不加载
-    return
-  }
   try {
     const [g, s, o] = await Promise.all([
       api.get('/api/activity/group', { params: { id: group.id } }),
@@ -732,27 +690,16 @@ async function loadGroup(group) {
     shopNode = found.shopNode
     petNode = found.petNode
 
-    const title = group.title || ''
-    const isQingmei = title.indexOf('青酿') >= 0 || title.indexOf('青梅') >= 0
     const theme = THEME_BY_UID[payloadUid(tree)] || null
     let pl = []
-    if (isQingmei) {
-      pl.push({ key: 'qingmei', title: '青梅酿', icon: '🍶' })
-    } else {
-      // 宠物玩法节点（type=18）：比熊之家 + 爪印手记
-      if (petNode) {
-        pl.push({ key: 'pet', title: (theme && theme.pet) || '萌宠玩法', icon: '🐻' })
-        pl.push({ key: 'stories', title: (theme && theme.stories) || '成长手记', icon: '🐾' })
-      }
-      // 战令：名字优先用服务端 passport.title（当前「萌宠游记」）
-      if (season && season.passport) pl.push({ key: 'season', title: season.passport.title || (theme && theme.name) || '游记战令', icon: '🗺️' })
-      // 每日赠礼（type=13）
-      if (giftNode) pl.push({ key: 'gift', title: (theme && theme.gift) || '每日赠礼', icon: '🌟' })
-      // 兑换商店（type=3）
-      if (shopNode) pl.push({ key: 'shop', title: (theme && theme.shop) || '兑换商店', icon: '🛍️' })
-      // 节令小礼（跨活动通用模块）
-      if (solar && solar.terms && solar.terms.length) pl.push({ key: 'solar', title: '节令小礼', icon: '🌿' })
+    if (petNode) {
+      pl.push({ key: 'pet', title: (theme && theme.pet) || '萌宠玩法', icon: '🐻' })
+      pl.push({ key: 'stories', title: (theme && theme.stories) || '成长手记', icon: '🐾' })
     }
+    if (season && season.passport) pl.push({ key: 'season', title: season.passport.title || (theme && theme.name) || '游记战令', icon: '🗺️' })
+    if (giftNode) pl.push({ key: 'gift', title: (theme && theme.gift) || '每日赠礼', icon: '🌟' })
+    if (shopNode) pl.push({ key: 'shop', title: (theme && theme.shop) || '兑换商店', icon: '🛍️' })
+    if (solar && solar.terms && solar.terms.length) pl.push({ key: 'solar', title: '节令小礼', icon: '🌿' })
     panels.value = pl
     if (panelIdx.value < 0 || panelIdx.value >= pl.length) panelIdx.value = 0
     await renderPanel(pl[panelIdx.value])
@@ -773,9 +720,6 @@ async function renderPanel(p) {
   if (p.key === 'shop') await loadShop()
   else if (p.key === 'gift') await loadGift()
   else if (p.key === 'pet' || p.key === 'stories') await loadPet()
-  else if (p.key === 'qingmei') await loadQingmei()
-  else if (p.key === 'yulu') { await loadYulu() }
-  else if (p.key === 'honghua') { await loadHonghua() }
 }
 
 /* ---------- 比熊之家 / 爪印手记（S3 萌宠成长日记，同一份数据） ---------- */
@@ -934,10 +878,9 @@ function fmtDay(s) {
 }
 
 // 切号事件：用新账号重拉活动列表与鹊桥/雨落面板（热切换）
-const onSwitched = () => { loadActivity(); loadQiXi(); loadYulu(); loadHonghua() }
-let yuluDayTimer = null
-onMounted(() => { loadActivity(); loadQiXi(); loadYulu(); loadHonghua(); qixiTick(); qixiCdTimer = setInterval(qixiTick, 1000); yuluTick(); yuluCdTimer = setInterval(yuluTick, 1000); honghuaTick(); honghuaCdTimer = setInterval(honghuaTick, 1000); yuluDayTimer = setInterval(() => { yulu.dayTick = Date.now() }, 60000); window.addEventListener('account-switched', onSwitched) })
-onUnmounted(() => { if (qixiCdTimer) { clearInterval(qixiCdTimer); qixiCdTimer = null }; if (yuluCdTimer) { clearInterval(yuluCdTimer); yuluCdTimer = null }; if (honghuaCdTimer) { clearInterval(honghuaCdTimer); honghuaCdTimer = null }; if (yuluDayTimer) { clearInterval(yuluDayTimer); yuluDayTimer = null }; window.removeEventListener('account-switched', onSwitched) })
+const onSwitched = () => { loadActivity() }
+onMounted(() => { loadActivity(); window.addEventListener('account-switched', onSwitched) })
+onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) })
 </script>
 
 <template>

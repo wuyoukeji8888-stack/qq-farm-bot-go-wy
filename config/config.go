@@ -258,7 +258,7 @@ type GatewayConfig struct {
 	ACEEabled          bool   `json:"aceEnabled"`
 	TSDKGameID         string `json:"tsdkGameId"`
 	TSDKAppKey         string `json:"tsdkAppKey"`
-	AdminPort          int    `json:"adminPort"`      // 默认 3007
+	AdminPort          int    `json:"adminPort"`      // 默认 3009
 	AdminPassword      string `json:"adminPassword"`
 }
 
@@ -274,7 +274,7 @@ func DefaultGatewayConfig() GatewayConfig {
 		ACEEabled:          true,
 		TSDKGameID:         "", // 从环境变量 FARM_TSDK_GAME_ID
 		TSDKAppKey:         "", // 从环境变量 FARM_TSDK_APP_KEY
-		AdminPort:           3007,
+		AdminPort:           3009,
 		AdminPassword:       "admin",
 	}
 }

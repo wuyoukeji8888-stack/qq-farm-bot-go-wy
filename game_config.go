@@ -77,11 +77,43 @@ func initGameConfig(gameConfigDir string) {
 	loadPlantJSON(filepath.Join(gameConfigDir, "Plant.json"))
 	loadItemInfoJSON(filepath.Join(gameConfigDir, "ItemInfo.json"))
 	loadMutantEffectJSON(filepath.Join(gameConfigDir, "MutantEffect.json"))
+	fillMissingSeedPlants()
 	if len(seedToPlantMap) > 0 || len(seedItemSet) > 0 {
 		log.Printf("[config] 已加载植物配置(%d)与物品配置(%d)", len(seedToPlantMap), len(itemInfoMap))
 	} else {
 		log.Printf("[config] game-config 缺失，背包分类将使用启发式回退")
 	}
+}
+
+// fillMissingSeedPlants 把 ItemInfo type=5 但 Plant.json 没有 seed_id 映射的种子
+// 登记为 1x1 可种植，避免背包里有种却被 listBagSeeds / pickBagSeed 直接跳过。
+func fillMissingSeedPlants() {
+	n := 0
+	for id := range seedItemSet {
+		if _, ok := seedToPlantMap[id]; ok {
+			continue
+		}
+		name := ""
+		if it, ok := itemInfoMap[id]; ok {
+			name = it.Name
+		}
+		seedToPlantMap[id] = plantEntry{ID: id, SeedID: id, Size: 1, Name: name}
+		n++
+	}
+	if n > 0 {
+		log.Printf("[config] Plant.json 缺映射种子 %d 个，已按 1x1 兜底可自动种植", n)
+	}
+}
+
+// plantForSeed 按种子物品 ID 取植物配置。Plant.json 缺条目时，ItemInfo 种子或 20001–29999 按 1x1 兜底。
+func plantForSeed(seedID int) (plantEntry, bool) {
+	if p, ok := seedToPlantMap[seedID]; ok {
+		return p, true
+	}
+	if seedItemSet[seedID] || (seedID >= 20001 && seedID <= 29999) {
+		return plantEntry{ID: seedID, SeedID: seedID, Size: 1, Name: seedPlantName(int64(seedID))}, true
+	}
+	return plantEntry{}, false
 }
 
 func loadPlantJSON(path string) {
