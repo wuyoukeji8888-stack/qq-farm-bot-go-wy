@@ -14,20 +14,18 @@ const patrol = ref({ steal: {}, help: {}, farm: {} })
 const logs = ref([])
 const loading = ref(false)
 const fert = ref({ normal: 0, organic: 0, cap: 999 }) // 化肥容器（小时）
-const appVersion = ref('dev')  // 助手版本号（build version）
 const appBuildTime = ref('')   // 助手构建时间（格式化后）
 
 async function loadAppInfo() {
   try {
     const { data } = await api.get('/api/health')
     if (data && data.ok && data.data) {
-      appVersion.value = data.data.version || 'dev'
       const bt = data.data.buildTime
       // buildTime 格式：2026-09-25T19:20:00Z（UTC），只在合法日期时显示
       if (bt && bt !== 'dev') {
         const d = new Date(bt)
         if (!isNaN(d.getTime())) {
-          const offset = d.getTime() + 8 * 3600000 // UTC+8 北京时间
+          const offset = d.getTime() + 8 * 3600000
           const dt = new Date(offset)
           const y = dt.getUTCFullYear()
           const m = String(dt.getUTCMonth() + 1).padStart(2, '0')
@@ -252,7 +250,6 @@ onUnmounted(() => {
             <div class="pc-name">{{ profile.name || '未登录' }}</div>
             <div class="pc-uid">UID · {{ profile.uid || '—' }}</div>
             <div class="pc-exp">经验 <b>{{ fmtNum(profile.exp) }} / {{ fmtNum(profile.expMax) }}</b></div>
-            <div v-if="appBuildTime" class="pc-ver">助手版本：{{ appBuildTime }}</div>
             <span class="pc-lvl">Lv.{{ profile.level || '—' }}</span>
           </div>
         </div>
@@ -324,6 +321,7 @@ onUnmounted(() => {
     <!-- 操作日志 -->
     <div class="sec-title"><span>操作日志</span><span class="link" @click="clearLogs">清空</span></div>
     <div class="logs">
+      <div class="log-version">助手版本：{{ appBuildTime }}</div>
       <div v-if="!logs.length" class="empty-tip">暂无日志</div>
       <div v-for="(lg, i) in logs" :key="i" class="log-row">
         <span v-if="lg.tag" class="lg-type">{{ lg.tag }}</span>
