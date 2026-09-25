@@ -250,6 +250,7 @@ onUnmounted(() => {
             <div class="pc-name">{{ profile.name || '未登录' }}</div>
             <div class="pc-uid">UID · {{ profile.uid || '—' }}</div>
             <div class="pc-exp">经验 <b>{{ fmtNum(profile.exp) }} / {{ fmtNum(profile.expMax) }}</b></div>
+            <div class="pc-ver">助手版本：{{ appBuildTime }}</div>
             <span class="pc-lvl">Lv.{{ profile.level || '—' }}</span>
           </div>
         </div>
@@ -321,7 +322,6 @@ onUnmounted(() => {
     <!-- 操作日志 -->
     <div class="sec-title"><span>操作日志</span><span class="link" @click="clearLogs">清空</span></div>
     <div class="logs">
-      <div class="log-version">助手版本：{{ appBuildTime }}</div>
       <div v-if="!logs.length" class="empty-tip">暂无日志</div>
       <div v-for="(lg, i) in logs" :key="i" class="log-row">
         <span v-if="lg.tag" class="lg-type">{{ lg.tag }}</span>
