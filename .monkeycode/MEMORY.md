@@ -24,3 +24,13 @@ This file records user instructions, preferences, and teachings for reference in
   - 可执行文件名为 go-farm-bot，安装到 /opt/go-farm-bot
   - 前端构建产物嵌入后端二进制（//go:embed all:web/dist），必须先构建前端再编译后端
   - 助手版本号由 /api/health 接口返回，格式为 buildTime（UTC ISO 8601），前端转换为北京时间显示
+- 推送前版本更新流程：先更新 version.go，再前端 build，再 go build
+
+### Project Knowledge Entry
+[Project Knowledge Summary]
+- Date: 2026-09-27
+- Context: Agent 发现的作物展示与合种逻辑
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 月下美人：种子 21404，plant 1021404，fruit 41404，asset Crop_1404；Plant.size=null 导致展示图缺失，需 game_images.go 路径编码 + itemNameAliases 绕过 JSON 优先级
+  - 背包优先 2x2 合种：1x1 空地通过 farmGridCols=4 推断相邻四连块（inferEmpty2x2IDs）；plantFromShopLands/plantBagSeedsForLands 需用 reservedLandSet() 过滤已预留地块

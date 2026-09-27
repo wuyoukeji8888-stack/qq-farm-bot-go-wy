@@ -1948,6 +1948,42 @@ func handleDebugItemUse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"ok": true, "hex": fmt.Sprintf("%X", body), "bodyLen": len(rep.Body), "respHex": fmt.Sprintf("%X", rep.Body)})
 }
 
+// actOperateWithEmptyExt Operate{f1=id, f2=cmd, f<cmd+99>={}}，空扩展块必带。
+func actOperateWithEmptyExt(ctx context.Context, accountID string, activityID, cmd int64) ([]byte, error) {
+	b := proto.NewBuilder()
+	b.FieldInt64(1, activityID)
+	b.FieldInt64(2, cmd)
+	body := honghuaAppendMsg(b.Bytes(), int(cmd)+honghuaExtBase, nil)
+	return rpcRequest(ctx, accountID, actSvc, "Operate", body, 15*time.Second)
+}
+
+func actClaimErrIdempotent(es string) bool {
+	return strings.Contains(es, "无可领取") || strings.Contains(es, "已领取") || strings.Contains(es, "重复") || strings.Contains(es, "已领")
+}
+
+// actManualClaimOperate 领取指定活动节点。cmd=0 时按常见值探测；「已领取」类错误视为成功。
+func actManualClaimOperate(ctx context.Context, accountID string, activityID, cmd int64) ([]byte, int64, error) {
+	cmds := []int64{cmd}
+	if cmd == 0 {
+		cmds = []int64{4, 38, 36, 21, 25, 1}
+	}
+	var lastCmd int64
+	var lastErr error
+	for _, tryCmd := range cmds {
+		lastCmd = tryCmd
+		body, err := actOperateWithEmptyExt(ctx, accountID, activityID, tryCmd)
+		if err == nil {
+			return body, tryCmd, nil
+		}
+		es := actErrMsg(err)
+		if actClaimErrIdempotent(es) {
+			return nil, tryCmd, nil
+		}
+		lastErr = err
+	}
+	return nil, lastCmd, lastErr
+}
+
 // ----- 手动领取：秋祈良愿 / 快乐不独享 -----
 //
 // 逻辑：
@@ -1969,13 +2005,9 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	reqActivityID, _ := strconv.ParseInt(q.Get("activityId"), 10, 64)
 	cmd, _ := strconv.ParseInt(q.Get("cmd"), 10, 64)
-	if cmd == 0 {
-		cmd = actManualClaimCmd
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 
-	// 1. List 活动
 	listBody, err := rpcRequest(ctx, accountID, actSvc, "List", []byte{}, 15*time.Second)
 	if err != nil {
 		writeJSONMap(w, "ok", false, "error", actErrMsg(err))
@@ -1983,19 +2015,29 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	activities := ParseActivityList(listBody)
 
-	// 2. 筛选目标活动组
+	seenRoot := map[int64]bool{}
 	var targetRoots []*ActivityInfo
 	for _, act := range activities {
-		if reqActivityID > 0 {
-			if act.ID == reqActivityID || act.ID == reqActivityID-1 {
-				targetRoots = append(targetRoots, act)
-			}
+		if act == nil || act.ID <= 0 {
 			continue
 		}
 		p := act.ID / 100
-		if p == actAutumnPrayerPrefix || p == actJoySharePrefix {
-			targetRoots = append(targetRoots, act)
+		if reqActivityID > 0 {
+			reqRoot := reqActivityID - reqActivityID%100
+			if act.ID != reqActivityID && act.ID-act.ID%100 != reqRoot && p != reqActivityID && p != reqRoot {
+				continue
+			}
+		} else if p != actAutumnPrayerPrefix && p != actJoySharePrefix {
+			continue
 		}
+		rootID := act.ID - act.ID%100
+		if seenRoot[rootID] {
+			continue
+		}
+		seenRoot[rootID] = true
+		cp := *act
+		cp.ID = rootID
+		targetRoots = append(targetRoots, &cp)
 	}
 	if len(targetRoots) == 0 {
 		writeJSONMap(w, "ok", false, "error", "未找到秋祈良愿/快乐不独享活动")
@@ -2039,23 +2081,13 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 			if n == nil || n.Info == nil {
 				return
 			}
-			// 对可领取的子节点（status=2）进行领取
-			if n.Info.ID != rootID && n.Info.Status == 2 && n.Info.ID%100 != 0 {
-				ob := proto.NewBuilder()
-				ob.FieldInt64(1, n.Info.ID)
-				ob.FieldInt64(2, cmd)
-				obBody, err := rpcRequest(ctx, accountID, actSvc, "Operate", ob.Bytes(), 15*time.Second)
-				if err != nil {
-					es := actErrMsg(err)
-					// 幂等："无可领取"或已领取的错误视为成功
-					if !strings.Contains(es, "无可领取") && !strings.Contains(es, "已领取") && !strings.Contains(es, "重复") {
-						result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Operate(id=%d,cmd=%d):%s", n.Info.ID, cmd, es))
-					}
-				} else {
-					// 领取成功，收集奖励
+			if n.Info.ID != rootID && n.Info.Status == 2 {
+				obBody, usedCmd, opErr := actManualClaimOperate(ctx, accountID, n.Info.ID, cmd)
+				if opErr != nil {
+					result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Operate(id=%d,cmd=%d):%s", n.Info.ID, usedCmd, actErrMsg(opErr)))
+				} else if obBody != nil {
 					rewards := parseActRewardField(obBody, 126)
 					if len(rewards) == 0 {
-						// 尝试从 field1 取 Item 列表
 						for _, r := range actBytesAll(readActFields(obBody), 1) {
 							it := parseItem(r)
 							if it != nil {

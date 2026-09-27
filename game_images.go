@@ -2,10 +2,12 @@ package main
 
 import (
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // itemImageMap 物品ID(itemId) → 图片URL 映射，由 InitImageMap 启动时从 seed_images_named 目录扫描建立。
@@ -35,6 +37,13 @@ func InitImageMap(gameConfigDir string) {
 	scanImageDir(dir, "")
 	// mutant 子目录（变异作物素材，路径 /mutant/*）
 	scanImageDir(filepath.Join(dir, "mutant"), "mutant/")
+	if u, ok := itemImageMap[21404]; ok && u != "" {
+		for _, id := range []int{41404, 1021404, 1121404, 1041404} {
+			if _, exists := itemImageMap[id]; !exists {
+				itemImageMap[id] = u
+			}
+		}
+	}
 	log.Printf("[images] 已加载物品图片映射 (id=%d, assetName=%d 项)",
 		len(itemImageMap), len(seedAssetImageMap))
 }
@@ -98,20 +107,29 @@ func tryGetImage(id int) string {
 //   2. itemId 为果实 id 时，用 plant.seed_id 换算后再查
 func GetItemImageURL(itemID int) string {
 	if u := tryGetImage(itemID); u != "" {
-		return u
+		return urlEncodePath(u)
 	}
 	if plant, ok := getPlantByFruitID(itemID); ok && plant.SeedID > 0 {
 		if u := tryGetImage(plant.SeedID); u != "" {
-			return u
+			return urlEncodePath(u)
 		}
 	}
 	return ""
 }
 
+// urlEncodePath 对 URL 路径中的中文字符进行编码，保持路径分隔符不变。
+func urlEncodePath(raw string) string {
+	parts := strings.Split(raw, "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(p)
+	}
+	return strings.Join(parts, "/")
+}
+
 // getSeedImageBySeedIdURL id 直查 → asset_name 回退（不换算 fruit→seed）。
-// 供图鉴 buildIllustratedItem 使用（传 fruitId，经 asset_name 命中同源图片）。
+// 供电鉴 buildIllustratedItem 使用（传 fruitId，经 asset_name 命中同源图片）。
 func getSeedImageBySeedIdURL(seedID int) string {
-	return tryGetImage(seedID)
+	return urlEncodePath(tryGetImage(seedID))
 }
 
 func parsePositiveInt(s string) int {

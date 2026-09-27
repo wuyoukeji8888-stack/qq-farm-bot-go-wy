@@ -661,6 +661,53 @@ func hasGoldenBug(p *proto.PlantInfo) bool {
 	return false
 }
 
+// farmGridCols 农场网格列数（CSS 注释：24块地）
+const farmGridCols = 4
+
+// inferEmpty2x2IDs 推断相邻四块空地组成一个 2x2 种植单元。
+// 当 LandSize==1 但旁边有空地时，游戏会在种植时自动合并为 2x2。
+// 只检查四连块是否全部空且 MasterLandID==0。
+func inferEmpty2x2IDs(lid int64, landByID map[int64]*proto.LandInfo) []int64 {
+	row, col := int(lid-1)/farmGridCols, int(lid-1)%farmGridCols
+	if col >= farmGridCols-1 || row >= 2 {
+		return nil
+	}
+	candidates := []int64{
+		lid,
+		lid + 1,
+		lid + farmGridCols,
+		lid + farmGridCols + 1,
+	}
+	var ids []int64
+	for _, c := range candidates {
+		l := landByID[c]
+		if l == nil || !l.Unlocked || l.MasterLandID > 0 {
+			return nil
+		}
+		if l.Plant != nil && len(l.Plant.Phases) > 0 {
+			ph := currentPhase(l.Plant.Phases, time.Now().Unix())
+			if ph != nil && ph.Phase != proto.PhaseDead {
+				return nil
+			}
+		}
+		ids = append(ids, c)
+	}
+	return ids
+}
+
+// reservedLandSet 返回已预留 2x2 单元的所有土地 ID 集合。
+func reservedLandSet() map[int64]bool {
+	reserved2x2Mu.Lock()
+	defer reserved2x2Mu.Unlock()
+	m := make(map[int64]bool)
+	for _, ids := range reserved2x2 {
+		for _, id := range ids {
+			m[id] = true
+		}
+	}
+	return m
+}
+
 func dedupeInt64(in []int64) []int64 {
 	if len(in) == 0 {
 		return in
@@ -712,6 +759,15 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 				seen[s] = true
 			}
 			u.is2x2 = true
+		} else if cfg.Prioritize2x2Crops {
+			// 推断相邻空地 2x2 单元
+			if ids := inferEmpty2x2IDs(id, landByID); ids != nil {
+				u.ids = ids
+				for _, s := range ids {
+					seen[s] = true
+				}
+				u.is2x2 = true
+			}
 		}
 		seen[id] = true
 		units = append(units, u)
@@ -760,7 +816,7 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 			}
 			groupKey := fmt.Sprintf("2x2:%d", u.master)
 
-			// (A) 检查已预留：若预留地全空 → 种植并释放预留
+				// (A) 检查已预留：若预留地全空 → 种植并释放预留
 			reserved2x2Mu.Lock()
 			if reservedIDs, isReserved := reserved2x2[groupKey]; isReserved {
 				reserved2x2Mu.Unlock()
@@ -774,7 +830,7 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 				if allReady && seeds != nil && len(seeds) > 0 {
 					realSeed, e2 := ensureSeedOwned(c, seeds[0].seedID, 0, 0, 1)
 					if e2 == nil && realSeed > 0 {
-						if err := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, []int64{u.master})); err == nil {
+						if err := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, u.ids)); err == nil {
 							recordOperation(accountID, "plant", int64(len(u.ids)))
 							appendOpLog(accountID, "farm", fmt.Sprintf("2x2预留种植种子 %d → %d 块地", realSeed, len(u.ids)))
 							reserved2x2Mu.Lock()
@@ -796,7 +852,6 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 						reserved2x2Mu.Unlock()
 					}
 				}
-				remainUnits = append(remainUnits, u)
 				continue
 			}
 			reserved2x2Mu.Unlock()
@@ -813,7 +868,7 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 				if seeds != nil && len(seeds) > 0 {
 					realSeed, e2 := ensureSeedOwned(c, seeds[0].seedID, 0, 0, 1)
 					if e2 == nil && realSeed > 0 {
-						if err := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, []int64{u.master})); err == nil {
+						if err := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, u.ids)); err == nil {
 							recordOperation(accountID, "plant", int64(len(u.ids)))
 							appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种植种子 %d → %d 块地", realSeed, len(u.ids)))
 							time.Sleep(plantDelay(cfg) + 200*time.Millisecond)
@@ -847,13 +902,13 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 				appendOpLog(accountID, "farm", fmt.Sprintf("2x2预留 种子%d 等待地块%v", seeds[0].seedID, u.ids))
 				last2x2WaitKey = groupKey
 			}
-			remainUnits = append(remainUnits, u)
 		}
 		units = remainUnits
 	}
 
 	// bag_priority：先按背包种子顺序消耗；按地块品质拆分
 	if strategy == "bag_priority" {
+		reserved := reservedLandSet()
 		allowed := normalizeFertilizerLandTypes(cfg.BagPriorityLandTypes) // 5 种品质，空集/全选=不限制
 		unrestricted := len(allowed) == 0 || len(allowed) >= 5
 		var prefMasters, otherMasters []int64
@@ -863,6 +918,9 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 				allowedSet[t] = true
 			}
 			for _, u := range units {
+				if reserved[u.master] {
+					continue
+				}
 				lt := landTypeByLevel(landByID[u.master].Level)
 				if allowedSet[lt] {
 					prefMasters = append(prefMasters, u.master)
@@ -872,6 +930,9 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 			}
 		} else {
 			for _, u := range units {
+				if reserved[u.master] {
+					continue
+				}
 				prefMasters = append(prefMasters, u.master)
 			}
 		}

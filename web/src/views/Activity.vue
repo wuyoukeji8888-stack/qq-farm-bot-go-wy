@@ -859,29 +859,35 @@ async function qmBrew() {
 }
 
 /* ---------- 手动领取：秋祈良愿 / 快乐不独享 ---------- */
-async function autoClaimActivity(actId = null) {
+async function autoClaimActivity() {
+  const g = groups.value[groupIdx.value]
+  const activityId = g && g.id ? g.id : undefined
   loading.value = true
   try {
     const { data } = await api.post('/api/activity/auto-claim', null, {
-      params: { activityId: actId }
+      params: { activityId },
+      timeout: 90000,
     })
     loading.value = false
-    if (!(data && data.ok)) { 
-      app.error((data && data.error) || '自动领取失败'); 
+    if (!(data && data.ok)) {
+      app.error((data && data.error) || '领取失败')
       return
     }
-    app.success('自动领取完成')
-    // 刷新相关面板数据
-    await Promise.all([
-      loadGift(),      // 观星
-      loadShop(),      // 商店
-      loadPet(),       // 萌宠
-      api.get('/api/activity/season').then(r => { if (r.data && r.data.ok) view.season = r.data.data || null }), // 千星
-      api.get('/api/activity/solar').then(r => { if (r.data && r.data.ok) view.solar = r.data.data || null })   // 节令
-    ]).catch(() => {})
-  } catch (e) { 
-    loading.value = false; 
-    app.error('自动领取失败') 
+    const results = data.results || []
+    let claimed = 0
+    const errors = []
+    results.forEach((r) => {
+      claimed += (r.claimed || []).length
+      ;(r.errors || []).forEach((e) => { if (e) errors.push(e) })
+    })
+    if (claimed > 0) app.success('领取完成，成功 ' + claimed + ' 项')
+    else if (errors.length) app.error(errors[0])
+    else app.success('没有可领取的奖励')
+    if (g) await loadGroup(g)
+  } catch (e) {
+    loading.value = false
+    const msg = (e && e.response && e.response.data && e.response.data.error) || (e && e.message) || '领取失败'
+    app.error(msg)
   }
 }
 
@@ -948,7 +954,7 @@ onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) }
       </div>
       <div class="act-hint">点按下方按钮自动领取该活动全部可领奖励</div>
       <div class="act-actions">
-        <button class="act-btn" :disabled="loading" @click="autoClaimActivity">{{ loading ? '⏳ 领取中…' : '✨ 一键领取全部' }}</button>
+        <button class="act-btn" :disabled="loading" @click="autoClaimActivity()">{{ loading ? '领取中…' : '一键领取全部' }}</button>
       </div>
     </div>
 

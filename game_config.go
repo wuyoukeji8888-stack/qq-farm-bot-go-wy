@@ -71,6 +71,15 @@ var extraItemNames = map[int]string{
 	1040:  "爱心值",   // 公益小红花：收获小红花果实获得；捐赠后从背包扣除（抓包 ItemNotify 1040 -7 实锤）
 }
 
+// itemNameAliases 覆盖官方配置展示名（月光花客户端俗称月下美人）。
+var itemNameAliases = map[int]string{
+	21404:   "月下美人种子",
+	41404:   "月下美人",
+	1021404: "月下美人",
+	1121404: "黄金·月下美人",
+	1041404: "黄金·月下美人",
+}
+
 // initGameConfig 从 gameConfigDir 加载 Plant.json / ItemInfo.json。
 // 成功加载后调用方可用 IsFruitItemID / IsSeedItemID / itemName 做精确分类。
 func initGameConfig(gameConfigDir string) {
@@ -263,6 +272,9 @@ func isFertilizerItemID(id int64) bool {
 
 // fruitPlantName 果实植物名（"草莓" 等，不含"果实"后缀；找不到返回空）
 func fruitPlantName(id int64) string {
+	if n, ok := itemNameAliases[int(id)]; ok {
+		return n
+	}
 	if fi, ok := fruitItemMap[id]; ok {
 		return fi.Name
 	}
@@ -275,6 +287,9 @@ func fruitPlantName(id int64) string {
 // seedPlantName 种子对应植物名（"草莓" 等；找不到返回空）
 // 若 ItemInfo 有 type5 的种子条目则直接用其名（如"草莓种子"）。
 func seedPlantName(id int64) string {
+	if n, ok := itemNameAliases[int(id)]; ok {
+		return n
+	}
 	if it, ok := itemInfoMap[int(id)]; ok && it.Type == 5 && it.Name != "" {
 		return it.Name
 	}
@@ -286,6 +301,9 @@ func seedPlantName(id int64) string {
 
 // itemDisplayName 物品展示名（未在 ItemInfo 收录时返回 "物品{id}"）
 func itemDisplayName(id int64) string {
+	if n, ok := itemNameAliases[int(id)]; ok {
+		return n
+	}
 	if it, ok := itemInfoMap[int(id)]; ok {
 		return it.Name
 	}
@@ -325,6 +343,9 @@ func getPlantGrowTime(plantID int64) int64 {
 
 // getPlantNameOrNull 按植物ID取名称（找不到返回空串）
 func getPlantNameOrNull(plantID int64) string {
+	if n, ok := itemNameAliases[int(plantID)]; ok {
+		return n
+	}
 	if p, ok := plantByIDMap[int(plantID)]; ok {
 		return p.Name
 	}
