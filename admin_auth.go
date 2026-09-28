@@ -129,6 +129,19 @@ func adminTokenFromRequest(r *http.Request) string {
 	return ""
 }
 
+// userTokenFromRequest 从请求中提取用户 token
+func userTokenFromRequest(r *http.Request) string {
+	if t := strings.TrimSpace(r.Header.Get("Authorization")); t != "" {
+		if strings.HasPrefix(t, "Bearer ") {
+			return strings.TrimSpace(t[len("Bearer "):])
+		}
+	}
+	if t := strings.TrimSpace(r.Header.Get("x-user-token")); t != "" {
+		return t
+	}
+	return ""
+}
+
 // ---- Admin API 路由 ----
 
 func registerAdminAuthAPI(api *http.ServeMux) {
@@ -303,12 +316,17 @@ func handleAdminSystemConfig(w http.ResponseWriter, r *http.Request) {
 func apiPublicPath(path string) bool {
 	switch path {
 	case "/api/health", "/api/admin/status", "/api/admin/login", "/api/admin/setup":
+		// 多用户系统公开端点
+	case "/api/users/register", "/api/users/login":
 		return true
 	}
 	return false
 }
 
 // adminAuthMiddleware 包装 api：panic 兜底 + 鉴权 + 超时注入
+// 支持两种鉴权方式：
+// 1. 用户token鉴权：通过 /api/users/login 获取 token，使用 Authorization: Bearer <token>
+// 2. 管理员密码鉴权：首次访问需设置密码（向后兼容）
 func adminAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. panic 兜底：单个 handler 崩溃不拖垮整个进程
@@ -321,13 +339,14 @@ func adminAuthMiddleware(next http.Handler) http.Handler {
 
 		path := r.URL.Path
 		if !apiPublicPath(path) {
-			// 2. 鉴权
-			if !adminHasPassword() {
-				writeError(w, 401, "请先设置管理员密码")
-				return
-			}
-			if !adminTokenValid(adminTokenFromRequest(r)) {
-				writeError(w, 401, "未登录或登录已过期")
+			// 2. 鉴权：优先检查用户 token
+			userToken := userTokenFromRequest(r)
+			if userToken != "" && models.UserTokenValid(userToken) {
+				// 用户 token 有效，允许访问
+			} else if adminHasPassword() && adminTokenValid(adminTokenFromRequest(r)) {
+				// 管理员 token 有效（向后兼容）
+			} else {
+				writeError(w, 401, "未登录或登录已过期，请先登录")
 				return
 			}
 		}

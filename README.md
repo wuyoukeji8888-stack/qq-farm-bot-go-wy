@@ -95,10 +95,36 @@ CGO_ENABLED=0 go build -o go-farm-bot .
 ```
 
 ### 首次配置
+
 1. 浏览器打开 `http://<服务器IP>:3009`
-2. 进入管理面板 → **设置** → 设置管理密码（`/api/admin/setup`）
-3. 添加账号 → 微信扫码 / 授权登录（YYB 渠道 = wx 平台）
-4. 打开自动化开关，Bot 即开始挂机
+2. **登录**：使用默认账号 `admin` / `admin` 登录
+3. **注册新用户**：在登录页面选择「注册」或访问 `/api/users/register` 注册新账号
+4. **获取卡密**：管理员可在 `users.json` 中添加卡密，用户可用卡密注册/续期
+5. **开启自动化**：登录后进入设置，添加微信账号后打开自动化开关
+
+> **⚠️ 安全提示**：首次登录后请尽快修改 `admin` 默认密码！
+> - 访问 `POST /api/users/login` 登录后记下 token
+> - 使用 `POST /api/admin/change-password` 修改密码
+> - 或直接修改 `users.json` 中的 password 字段
+
+### 多用户系统
+
+| 角色 | 说明 |
+|------|------|
+| `admin` | 拥有全部权限，默认账号 `admin/admin` |
+| `user` | 受卡密时长限制，无卡密则无法使用 |
+
+登录方式：
+```bash
+# 1. 登录获取 token
+curl -X POST http://localhost:3009/api/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}'
+
+# 2. 使用 token 访问功能面板
+curl http://localhost:3009/api/accounts \
+  -H "Authorization: Bearer <token>"
+```
 
 ### systemd 部署（推荐，裸机）
 ```ini

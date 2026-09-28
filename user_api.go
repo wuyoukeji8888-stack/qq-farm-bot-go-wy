@@ -80,8 +80,16 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 生成登录 token
+	token, err := models.NewUserToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "生成token失败")
+		return
+	}
+
 	writeJSON(w, map[string]interface{}{
 		"ok": true,
+		"token": token,
 		"user": map[string]interface{}{
 			"username":     result.Username,
 			"role":         result.Role,

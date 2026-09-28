@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,6 +39,8 @@ var (
 	userStoreMu       sync.Mutex
 	userDataDir       string
 	cardClaimEnabled  = true
+	userTokens        = make(map[string]time.Time) // token -> expiry
+	userTokensMu      sync.Mutex
 )
 
 type LoginAttempt struct {
@@ -113,6 +116,7 @@ func InitUserStore(dir string) {
 	loadCards()
 	loadLoginAttempts()
 	loadCardClaimRecords()
+	initDefaultAdmin()
 }
 
 func usersFilePath() string {
@@ -308,6 +312,7 @@ func initDefaultAdmin() {
 			return
 		}
 	}
+	// 默认管理员账号，密码 admin，需要提醒开发者修改
 	defaultPassword := "admin"
 	users = append(users, User{
 		Username:     "admin",
@@ -317,6 +322,7 @@ func initDefaultAdmin() {
 		CreatedAt:    time.Now().UnixMilli(),
 	})
 	saveUsers()
+	log.Println("[security] 已创建默认管理员账号 admin/admin，请尽快登录修改密码！")
 }
 
 func checkRateLimit(ip string) (allowed bool, remainingMs int64, message string) {
@@ -694,6 +700,67 @@ func DeleteUser(username string) error {
 		}
 	}
 	return errors.New("用户不存在")
+}
+
+// ---- 用户 Token 管理 ----
+
+const userTokenTTL = 24 * time.Hour
+
+// NewUserToken 生成用户登录 token
+func NewUserToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := cryptorand.Read(b); err != nil {
+		return "", err
+	}
+	tok := hex.EncodeToString(b)
+	userTokensMu.Lock()
+	userTokens[tok] = time.Now().Add(userTokenTTL)
+	userTokensMu.Unlock()
+	return tok, nil
+}
+
+// UserTokenValid 校验用户 token 是否有效
+func UserTokenValid(tok string) bool {
+	if tok == "" {
+		return false
+	}
+	userTokensMu.Lock()
+	defer userTokensMu.Unlock()
+	exp, ok := userTokens[tok]
+	if !ok {
+		return false
+	}
+	if time.Now().After(exp) {
+		delete(userTokens, tok)
+		return false
+	}
+	return true
+}
+
+// RevokeUserToken 注销用户 token
+func RevokeUserToken(tok string) {
+	userTokensMu.Lock()
+	delete(userTokens, tok)
+	userTokensMu.Unlock()
+}
+
+// GetUserByUsername 根据用户名获取用户
+func GetUserByUsername(username string) (*User, error) {
+	for i := range users {
+		if users[i].Username == username {
+			return &users[i], nil
+		}
+	}
+	return nil, errors.New("用户不存在")
+}
+
+// GetUserRole 获取用户角色
+func GetUserRole(username string) (string, error) {
+	user, err := GetUserByUsername(username)
+	if err != nil {
+		return "", err
+	}
+	return user.Role, nil
 }
 
 func GetCardClaimRecords() []CardClaimRecord {
