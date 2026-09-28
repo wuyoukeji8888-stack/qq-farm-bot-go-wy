@@ -70,6 +70,9 @@ func main() {
 	models.InitStore(dataDir)
 	initStealToStore(dataDir + "/stealTo.json")
 
+	// 初始化多用户/卡密存储（users.json / cards.json / login-attempts.json / card-claim.json）
+	models.InitUserStore(dataDir)
+
 	gwCfg := models.GetGatewayConfig()
 	adminPort := gwCfg.AdminPort
 	if adminPort == 0 {
@@ -128,6 +131,7 @@ func main() {
 
 	api := http.NewServeMux()
 	api.HandleFunc("/api/health", handleHealth)
+	registerUserAPI(api)
 	registerHomeAPI(api)
 	registerProfileAPI(api)
 	registerCareerAPI(api)
