@@ -664,12 +664,15 @@ func hasGoldenBug(p *proto.PlantInfo) bool {
 // farmGridCols 农场网格列数（CSS 注释：24块地）
 const farmGridCols = 4
 
-// inferEmpty2x2IDs 推断相邻四块空地组成一个 2x2 种植单元。
+// inferEmpty2x2IDs 以 lid 为左上角，推断相邻四块空地组成一个 2x2 种植单元。
 // 当 LandSize==1 但旁边有空地时，游戏会在种植时自动合并为 2x2。
-// 只检查四连块是否全部空且 MasterLandID==0。
+// 只检查四连块是否全部空且 MasterLandID==0。4 列网格任意行均可成组。
 func inferEmpty2x2IDs(lid int64, landByID map[int64]*proto.LandInfo) []int64 {
-	row, col := int(lid-1)/farmGridCols, int(lid-1)%farmGridCols
-	if col >= farmGridCols-1 || row >= 2 {
+	if lid <= 0 {
+		return nil
+	}
+	col := int((lid - 1) % farmGridCols)
+	if col >= farmGridCols-1 {
 		return nil
 	}
 	candidates := []int64{
@@ -729,11 +732,39 @@ func dedupeInt64(in []int64) []int64 {
 //  1. 枯死先铲除；2) 2x2 优先（用背包四格种子预留并种植）；
 //  3. bag_priority 按背包种子顺序消耗（并按地块品质拆分）其余/剩余走第二优先策略；
 //  4. 其余策略走商城购买种植。
+func landHasLivePlant(l *proto.LandInfo) bool {
+	if l == nil || l.Plant == nil || len(l.Plant.Phases) == 0 {
+		return false
+	}
+	ph := currentPhase(l.Plant.Phases, time.Now().Unix())
+	return ph != nil && ph.Phase != proto.PhaseDead
+}
+
 func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, lands []*proto.LandInfo, targetLandIDs []int64) {
 	landByID := map[int64]*proto.LandInfo{}
 	for _, l := range lands {
 		if l != nil {
 			landByID[l.ID] = l
+		}
+	}
+	// 枯死先铲，并清本地 Plant，否则后续无法把四块空地推断成 2x2
+	for _, id := range targetLandIDs {
+		l := landByID[id]
+		if l == nil || l.Plant == nil || len(l.Plant.Phases) == 0 {
+			continue
+		}
+		if ph := currentPhase(l.Plant.Phases, time.Now().Unix()); ph != nil && ph.Phase == proto.PhaseDead {
+			ids := []int64{id}
+			if l.LandSize > 1 && len(l.SlaveLandIDs) > 0 {
+				ids = append(ids, l.SlaveLandIDs...)
+			}
+			_ = execFarmOp(c, "RemovePlant", proto.EncodeRemovePlantRequest(ids))
+			for _, lid := range ids {
+				if ll := landByID[lid]; ll != nil {
+					ll.Plant = nil
+				}
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
 	}
 	// 构建种植单元：master + 从属地（2x2）仅保留未处理过的 master
@@ -760,9 +791,9 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 			}
 			u.is2x2 = true
 		} else if cfg.Prioritize2x2Crops {
-			// 推断相邻空地 2x2 单元
 			if ids := inferEmpty2x2IDs(id, landByID); ids != nil {
 				u.ids = ids
+				u.master = ids[0]
 				for _, s := range ids {
 					seen[s] = true
 				}
@@ -775,15 +806,6 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 	if len(units) == 0 {
 		return
 	}
-	// 枯死作物先铲除（removePlant(dead) 再种植）
-	for _, u := range units {
-		if l := landByID[u.master]; l != nil && l.Plant != nil && len(l.Plant.Phases) > 0 {
-			if ph := currentPhase(l.Plant.Phases, time.Now().Unix()); ph != nil && ph.Phase == proto.PhaseDead {
-				_ = execFarmOp(c, "RemovePlant", proto.EncodeRemovePlantRequest(u.ids))
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-	}
 
 	strategy := cfg.PlantingStrategy
 	if strategy == "" {
@@ -793,21 +815,52 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 	// 2x2 优先：背包四格种子预留 + 等待四格清空
 	if cfg.Prioritize2x2Crops {
 		var remainUnits []unit
-		// 提前拉取2x2种子列表
 		seeds, seedsErr := listBagSeeds(accountID, c, cfg, 2)
 		if seedsErr != nil {
+			appendOpLog(accountID, "farm", "2x2 背包读取失败: "+seedsErr.Error())
 			seeds = nil
+		}
+		var usable []bagSeedItem
+		for _, s := range seeds {
+			if s.count > 0 && s.seedID > 0 {
+				usable = append(usable, s)
+			}
+		}
+		if len(usable) == 0 {
+			appendOpLog(accountID, "farm", "2x2 优先开启但背包无四格种子")
 		} else {
-			has2x2 := false
-			for _, s := range seeds {
-				if s.count > 0 {
-					has2x2 = true
-					break
+			names := make([]string, 0, len(usable))
+			for _, s := range usable {
+				names = append(names, fmt.Sprintf("%s×%d", seedPlantName(s.seedID), s.count))
+			}
+			appendOpLog(accountID, "farm", "2x2 背包种子: "+strings.Join(names, "、"))
+		}
+		tryPlant2x2 := func(ids []int64) bool {
+			for _, s := range usable {
+				retryKey := fmt.Sprintf("2x2:%v:%d", ids, s.seedID)
+				failed2x2RetriesMu.Lock()
+				if retryUntil, hasRetry := failed2x2Retries[retryKey]; hasRetry && time.Now().Unix() < retryUntil {
+					failed2x2RetriesMu.Unlock()
+					continue
+				}
+				failed2x2RetriesMu.Unlock()
+				realSeed, e2 := ensureSeedOwned(c, s.seedID, 0, 0, 1)
+				if e2 != nil || realSeed <= 0 {
+					continue
+				}
+				if plantErr := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, ids)); plantErr == nil {
+					recordOperation(accountID, "plant", int64(len(ids)))
+					appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种植%s → 地块%v", seedPlantName(realSeed), ids))
+					time.Sleep(plantDelay(cfg) + 200*time.Millisecond)
+					return true
+				} else {
+					failed2x2RetriesMu.Lock()
+					failed2x2Retries[retryKey] = time.Now().Unix() + 600
+					failed2x2RetriesMu.Unlock()
+					appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种植失败 seed=%d lands=%v: %v", realSeed, ids, plantErr))
 				}
 			}
-			if !has2x2 {
-				seeds = nil
-			}
+			return false
 		}
 		for _, u := range units {
 			if !u.is2x2 {
@@ -815,91 +868,30 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 				continue
 			}
 			groupKey := fmt.Sprintf("2x2:%d", u.master)
-
-				// (A) 检查已预留：若预留地全空 → 种植并释放预留
-			reserved2x2Mu.Lock()
-			if reservedIDs, isReserved := reserved2x2[groupKey]; isReserved {
-				reserved2x2Mu.Unlock()
-				allReady := true
-				for _, lid := range reservedIDs {
-					if l := landByID[lid]; l != nil && l.Plant != nil && len(l.Plant.Phases) > 0 {
-						allReady = false
-						break
-					}
-				}
-				if allReady && seeds != nil && len(seeds) > 0 {
-					realSeed, e2 := ensureSeedOwned(c, seeds[0].seedID, 0, 0, 1)
-					if e2 == nil && realSeed > 0 {
-						if err := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, u.ids)); err == nil {
-							recordOperation(accountID, "plant", int64(len(u.ids)))
-							appendOpLog(accountID, "farm", fmt.Sprintf("2x2预留种植种子 %d → %d 块地", realSeed, len(u.ids)))
-							reserved2x2Mu.Lock()
-							delete(reserved2x2, groupKey)
-							reserved2x2Mu.Unlock()
-							time.Sleep(plantDelay(cfg) + 200*time.Millisecond)
-							continue
-						}
-						// 种植失败：记录重试冷却
-						retryKey := fmt.Sprintf("%s:%d", groupKey, seeds[0].seedID)
-						failed2x2RetriesMu.Lock()
-						failed2x2Retries[retryKey] = time.Now().Unix() + 600 // 10min冷却
-						failed2x2RetriesMu.Unlock()
-						appendOpLog(accountID, "farm", fmt.Sprintf("2x2 预留种植失败 seed=%d group=%s", realSeed, groupKey))
-					} else {
-						// 种子不可用，释放预留
-						reserved2x2Mu.Lock()
-						delete(reserved2x2, groupKey)
-						reserved2x2Mu.Unlock()
-					}
-				}
-				continue
-			}
-			reserved2x2Mu.Unlock()
-
-			// (B) 未预留：全部空闲 → 立即种植；否则预留等待
 			allEmpty := true
 			for _, id := range u.ids {
-				if l := landByID[id]; l != nil && l.Plant != nil && len(l.Plant.Phases) > 0 {
+				if landHasLivePlant(landByID[id]) {
 					allEmpty = false
 					break
 				}
 			}
-			if allEmpty {
-				if seeds != nil && len(seeds) > 0 {
-					realSeed, e2 := ensureSeedOwned(c, seeds[0].seedID, 0, 0, 1)
-					if e2 == nil && realSeed > 0 {
-						if err := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, u.ids)); err == nil {
-							recordOperation(accountID, "plant", int64(len(u.ids)))
-							appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种植种子 %d → %d 块地", realSeed, len(u.ids)))
-							time.Sleep(plantDelay(cfg) + 200*time.Millisecond)
-							continue
-						}
-					}
+			if allEmpty && len(usable) > 0 {
+				if tryPlant2x2(u.ids) {
+					reserved2x2Mu.Lock()
+					delete(reserved2x2, groupKey)
+					reserved2x2Mu.Unlock()
+					continue
 				}
+			}
+			if len(usable) == 0 {
 				remainUnits = append(remainUnits, u)
 				continue
 			}
-
-			// (C) 不全空：检查失败重试冷却 → 预留
-			if seeds == nil || len(seeds) == 0 || seeds[0].seedID <= 0 {
-				remainUnits = append(remainUnits, u)
-				continue
-			}
-			retryKey := fmt.Sprintf("%s:%d", groupKey, seeds[0].seedID)
-			failed2x2RetriesMu.Lock()
-			if retryUntil, hasRetry := failed2x2Retries[retryKey]; hasRetry && time.Now().Unix() < retryUntil {
-				failed2x2RetriesMu.Unlock()
-				remainUnits = append(remainUnits, u)
-				continue
-			}
-			failed2x2RetriesMu.Unlock()
-
-			// 预留
 			reserved2x2Mu.Lock()
 			reserved2x2[groupKey] = u.ids
 			reserved2x2Mu.Unlock()
 			if last2x2WaitKey != groupKey {
-				appendOpLog(accountID, "farm", fmt.Sprintf("2x2预留 种子%d 等待地块%v", seeds[0].seedID, u.ids))
+				appendOpLog(accountID, "farm", fmt.Sprintf("2x2预留 等待地块%v", u.ids))
 				last2x2WaitKey = groupKey
 			}
 		}
@@ -956,8 +948,22 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 	}
 
 	// 其余策略：商城购买种植
+	reserved := reservedLandSet()
 	var masters []int64
 	for _, u := range units {
+		if reserved[u.master] {
+			continue
+		}
+		skip := false
+		for _, id := range u.ids {
+			if reserved[id] {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
 		masters = append(masters, u.master)
 	}
 	plantFromShopLands(accountID, c, cfg, masters, "")
@@ -1096,6 +1102,8 @@ var eventSeeds = map[int64]bool{
 	20046:   true, // 爱心果（exp/h=640 限定种子，商店买不到）
 	21032:   true, // 琉璃宝荷（exp/h=640 限定种子，商店买不到）
 	20416:   true, // 哈哈南瓜（exp/h=640 限定种子，商店买不到）
+	29998:   true, // 哈哈南瓜（活动变体）
+	29004:   true, // 泡泡棉花糖（2x2 活动种子，商店买不到）
 }
 
 // failedBuySeeds 动态黑名单：购买失败（活动种子/不可购）的种子记入，后续轮次跳过候选。
@@ -1451,8 +1459,12 @@ func plantBagSeedsForLands(accountID string, c *gw.Client, cfg config.AccountCon
 	if len(seeds) == 0 {
 		return masters, true, nil
 	}
+	reserved := reservedLandSet()
 	remainingSet := map[int64]bool{}
 	for _, m := range masters {
+		if reserved[m] {
+			continue
+		}
 		remainingSet[m] = true
 	}
 	for _, s := range seeds {
@@ -1518,8 +1530,12 @@ func plantFromShopLands(accountID string, c *gw.Client, cfg config.AccountConfig
 			strategy = "level"
 		}
 	}
+	reserved := reservedLandSet()
 	remaining := map[int64]bool{}
 	for _, m := range masters {
+		if reserved[m] {
+			continue
+		}
 		remaining[m] = true
 	}
 	// 优先种植指定种子：背包里有就直接用（商店无货也能种），商店兜底

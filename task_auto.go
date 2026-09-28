@@ -616,13 +616,7 @@ func claimPetStoryRewardsGo(ctx context.Context, accountID string) int {
 		if s == nil || !s.Unlocked || s.Claimed || s.Order <= 0 {
 			continue
 		}
-		sub := proto.NewBuilder()
-		sub.FieldInt64(1, s.Order)
-		b := proto.NewBuilder()
-		b.FieldInt64(1, petPetID)
-		b.FieldInt64(2, petOpClaimStory)
-		b.FieldMessage(132, sub.Bytes())
-		if _, err := rpcRequest(ctx, accountID, actSvc, "Operate", b.Bytes(), 15*time.Second); err == nil {
+		if err := petClaimStory(ctx, accountID, s.Order); err == nil {
 			claimed++
 		}
 		time.Sleep(300 * time.Millisecond)

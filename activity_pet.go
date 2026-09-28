@@ -51,6 +51,11 @@ const (
 	petOpSeeds      int64 = 21
 	petOpShopBuy    int64 = 1
 
+	// 爪印手记领取扩展字段：Operate{f1=petPetID, f2=32, f<ext>={f1=order}}
+	// 本活动商店兑换为 cmd+100（cmd=1 → f101）；小红花为 cmd+99。领取失败「活动参数错误」时按 131/132 探测。
+	petStoryExtCmd99  = 131
+	petStoryExtCmd100 = 132
+
 	// 爪印手记照片墙（Cocos 资源名 → 本地静态目录）
 	petPhotoBase = "/game-config/pet-photos/"
 )
@@ -258,6 +263,34 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 	return st
 }
 
+// petClaimStory 领取一篇爪印手记。扩展字段按 cmd+99 / cmd+100 探测，命中「活动参数错误」则换字段重试。
+func petClaimStory(ctx context.Context, accountID string, order int64) error {
+	sub := proto.NewBuilder()
+	sub.FieldInt64(1, order)
+	subBytes := sub.Bytes()
+	var lastErr error
+	for _, ext := range []int{petStoryExtCmd99, petStoryExtCmd100, 3} {
+		b := proto.NewBuilder()
+		b.FieldInt64(1, petPetID)
+		b.FieldInt64(2, petOpClaimStory)
+		body := honghuaAppendMsg(b.Bytes(), ext, subBytes)
+		if _, err := rpcRequest(ctx, accountID, actSvc, "Operate", body, 15*time.Second); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			es := actErrMsg(err)
+			if strings.Contains(es, "已领取") || strings.Contains(es, "已领") || strings.Contains(es, "重复") {
+				return nil
+			}
+			if strings.Contains(es, "活动参数错误") {
+				continue
+			}
+			return err
+		}
+	}
+	return lastErr
+}
+
 /* ---------- API ---------- */
 
 // 路由注册在 activity_api.go 的 registerActivityAPI 内（/api/activity/pet 与 /api/activity/pet/operate）
@@ -324,11 +357,20 @@ func handleActivityPetOperate(w http.ResponseWriter, r *http.Request) {
 			writeJSONMap(w, "ok", false, "error", "缺少手记编号 order")
 			return
 		}
-		sub := proto.NewBuilder()
-		sub.FieldInt64(1, req.Order)
-		b.FieldInt64(1, petPetID)
-		b.FieldInt64(2, petOpClaimStory)
-		b.FieldMessage(132, sub.Bytes())
+		if err := petClaimStory(ctx, accountID, req.Order); err != nil {
+			writeJSONMap(w, "ok", false, "error", actErrMsg(err))
+			return
+		}
+		body, err := petFetchGroupRaw(ctx, accountID, 20*time.Second)
+		if err != nil {
+			writeJSONMap(w, "ok", true, "account", accountID, "action", req.Action, "warning", actErrMsg(err))
+			return
+		}
+		writeJSON(w, map[string]interface{}{
+			"ok": true, "account": accountID, "action": req.Action,
+			"data": petBuildState(ctx, accountID, body),
+		})
+		return
 	case "seeds":
 		b.FieldInt64(1, petSeedsID)
 		b.FieldInt64(2, petOpSeeds)
