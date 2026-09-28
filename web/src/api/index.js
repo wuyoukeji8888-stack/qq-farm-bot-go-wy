@@ -1,8 +1,8 @@
 import axios from 'axios'
 import router from '@/router'
 
-// Go 后端鉴权用 x-admin-token 请求头；账号身份用 URL 查询参数 ?accountId=（Go 只读 query，不认 x-account-id 头）。
-const tokenKey = 'admin_token'
+// 用户 token 存储
+const tokenKey = 'user_token'
 const accountIdKey = 'current_account_id'
 
 let currentAccountId = localStorage.getItem(accountIdKey) || ''
@@ -29,9 +29,10 @@ const api = axios.create({
 })
 
 // 统一注入鉴权头 + 账号查询参数
+// 使用 Authorization: Bearer <token> 进行用户鉴权
 api.interceptors.request.use((config) => {
   const token = getToken()
-  if (token) config.headers['x-admin-token'] = token
+  if (token) config.headers['Authorization'] = 'Bearer ' + token
   if (currentAccountId) {
     config.params = { ...(config.params || {}), accountId: currentAccountId }
   }

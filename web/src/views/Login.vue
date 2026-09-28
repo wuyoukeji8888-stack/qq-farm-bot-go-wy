@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import { useAccountStore } from '@/stores/account'
@@ -8,43 +8,56 @@ import { useAppStore } from '@/stores/app'
 const account = useAccountStore()
 const app = useAppStore()
 const router = useRouter()
-const pwd = ref('')
+const username = ref('')
+const password = ref('')
 const loading = ref(false)
-const hasPwd = ref(true)   // 是否已设置后台密码
+const isRegister = ref(false) // 切换登录/注册模式
 
-// 无 token 先探测 status，决定走 设密(setup) 还是 登录(login)
-onMounted(async () => {
-  try {
-    const { data } = await api.get('/api/admin/status')
-    hasPwd.value = !!data.hasPassword
-  } catch (e) { /* status 不可达则默认按有密码处理 */ }
-})
-
-const title = computed(() => hasPwd.value ? '后台管理登录' : '首次运行 · 设置后台密码')
-const sub = computed(() => hasPwd.value ? '请输入后台密码' : '尚未设置管理密码，请先设置并登录')
-const btnTxt = computed(() => {
-  if (loading.value) return hasPwd.value ? '登录中…' : '设置中…'
-  return hasPwd.value ? '登录' : '设置密码并登录'
-})
-
+// 登录提交
 async function onSubmit() {
-  if (!pwd.value) return
+  if (!username.value || !password.value) {
+    app.error('请输入用户名和密码')
+    return
+  }
   loading.value = true
   try {
-    if (!hasPwd.value) {
-      // 首次设密：先 setup 再 login
-      const { data: sd } = await api.post('/api/admin/setup', { password: pwd.value })
-      if (!(sd && sd.ok)) { app.error((sd && sd.error) || '设置失败'); return }
+    if (isRegister.value) {
+      // 注册新用户
+      const { data } = await api.post('/api/users/register', {
+        username: username.value,
+        password: password.value
+      })
+      if (data.ok) {
+        app.success('注册成功，请登录')
+        isRegister.value = false
+      } else {
+        app.error(data.error || '注册失败')
+      }
+    } else {
+      // 用户登录
+      const { data } = await api.post('/api/users/login', {
+        username: username.value,
+        password: password.value
+      })
+      if (data.ok && data.token) {
+        account.setToken(data.token)
+        await account.loadAccounts()
+        app.success('登录成功')
+        router.replace('/')
+      } else {
+        app.error(data.error || '登录失败')
+      }
     }
-    await account.login(pwd.value)
-    await account.loadAccounts()
-    app.success('登录成功')
-    router.replace('/')
   } catch (e) {
-    app.error(e.response?.data?.error || '登录失败')
+    app.error(e.response?.data?.error || '操作失败')
   } finally {
     loading.value = false
   }
+}
+
+// 切换登录/注册模式
+function toggleMode() {
+  isRegister.value = !isRegister.value
 }
 </script>
 
@@ -53,15 +66,34 @@ async function onSubmit() {
     <div class="login-card glass">
       <div class="login-logo">🌾</div>
       <h1>QQ 农场</h1>
-      <p class="login-sub">{{ sub }}</p>
+      <p class="login-title">{{ isRegister ? '用户注册' : '后台管理登录' }}</p>
+      <p class="login-sub">{{ isRegister ? '注册新账号' : '请输入用户名和密码' }}</p>
+      
       <input
-        v-model="pwd"
-        type="password"
+        v-model="username"
+        type="text"
         class="ipt"
-        :placeholder="hasPwd ? '请输入后台密码' : '设置后台密码（至少 6 位）'"
+        placeholder="用户名"
         @keyup.enter="onSubmit"
       />
-      <button class="btn primary" :disabled="loading" @click="onSubmit">{{ btnTxt }}</button>
+      <input
+        v-model="password"
+        type="password"
+        class="ipt"
+        :placeholder="isRegister ? '设置密码（至少 6 位）' : '密码'"
+        @keyup.enter="onSubmit"
+      />
+      
+      <button class="btn primary" :disabled="loading" @click="onSubmit">
+        {{ loading ? (isRegister ? '注册中…' : '登录中…') : (isRegister ? '注册' : '登录') }}
+      </button>
+      
+      <p class="toggle-link">
+        {{ isRegister ? '已有账号？' : '没有账号？' }}
+        <a href="#" @click.prevent="toggleMode">
+          {{ isRegister ? '去登录' : '去注册' }}
+        </a>
+      </p>
     </div>
   </div>
 </template>
@@ -80,7 +112,8 @@ async function onSubmit() {
   border-radius: var(--radius-lg);
   text-align: center;
 }
-.login-card .login-sub { color: var(--muted); font-size: 13px; margin: -4px 0 20px; }
+.login-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.login-sub { color: var(--muted); font-size: 13px; margin: -4px 0 20px; }
 .ipt {
   width: 100%;
   padding: 12px 14px;
@@ -101,5 +134,18 @@ async function onSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.toggle-link {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.toggle-link a {
+  color: var(--primary);
+  text-decoration: none;
+  margin-left: 4px;
+}
+.toggle-link a:hover {
+  text-decoration: underline;
 }
 </style>

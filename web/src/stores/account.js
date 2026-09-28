@@ -5,8 +5,8 @@ export const useAccountStore = defineStore('account', {
   state: () => ({
     accounts: [],
     currentId: getAccountId(),
-    adminLoggedIn: !!getToken(),
-    hasPassword: true,
+    userLoggedIn: !!getToken(),
+    userInfo: null,
   }),
   getters: {
     current(state) {
@@ -14,28 +14,36 @@ export const useAccountStore = defineStore('account', {
     },
   },
   actions: {
-    async loadAdminStatus() {
+    // 设置 token（供 Login.vue 调用）
+    setToken(token) {
+      setToken(token)
+      this.userLoggedIn = !!token
+    },
+    
+    // 获取当前用户信息
+    async loadUserInfo() {
       try {
-        const { data } = await api.get('/api/admin/status')
-        this.hasPassword = !!data.hasPassword
-        this.adminLoggedIn = !!getToken()
-        return data
+        const { data } = await api.get('/api/users/me')
+        if (data.ok) {
+          this.userInfo = data.user
+          return data.user
+        }
+        return null
       } catch (e) {
         return null
       }
     },
-    async login(password) {
-      const { data } = await api.post('/api/admin/login', { password })
-      if (data.token) {
-        setToken(data.token)
-        this.adminLoggedIn = true
-      }
-      return data
-    },
+    
+    // 用户登出
     logout() {
       setToken('')
-      this.adminLoggedIn = false
+      this.userLoggedIn = false
+      this.userInfo = null
+      this.accounts = []
+      this.currentId = ''
     },
+    
+    // 加载账号列表
     async loadAccounts() {
       const { data } = await api.get('/api/accounts')
       this.accounts = (data && data.data) || data.accounts || data.list || []
@@ -45,6 +53,8 @@ export const useAccountStore = defineStore('account', {
       }
       return this.accounts
     },
+    
+    // 切换账号
     switchAccount(id) {
       this.currentId = String(id)
       setAccountId(String(id))
