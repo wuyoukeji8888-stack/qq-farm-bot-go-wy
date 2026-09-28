@@ -2,9 +2,11 @@
 import { ref } from 'vue'
 import api from '@/api'
 import { useAppStore } from '@/stores/app'
+import { useAccountStore } from '@/stores/account'
 import { useRouter } from 'vue-router'
 
 const app = useAppStore()
+const account = useAccountStore()
 const router = useRouter()
 const oldPwd = ref(''); const newPwd = ref(''); const newPwd2 = ref('')
 const busy = ref(false)
@@ -15,7 +17,12 @@ async function change() {
   if (newPwd.value !== newPwd2.value) { app.error('两次新密码不一致'); return }
   busy.value = true
   try {
-    const { data } = await api.post('/api/admin/change-password', { oldPassword: oldPwd.value, newPassword: newPwd.value })
+    const username = account.userInfo?.username
+    if (!username) { app.error('用户未登录'); return }
+    const { data } = await api.post(`/api/users/change-password?username=${username}`, { 
+      oldPassword: oldPwd.value, 
+      newPassword: newPwd.value 
+    })
     if (data?.ok) { app.success('密码修改成功'); oldPwd.value = ''; newPwd.value = ''; newPwd2.value = '' }
     else app.error(data?.error || '修改失败')
   } catch (e) { app.error(e.response?.data?.error || '网络错误') } finally { busy.value = false }
@@ -24,9 +31,9 @@ async function change() {
 
 <template>
   <div>
-    <div class="subbar"><button class="icon-btn" @click="router.push('/more')">‹</button><h3>后台</h3></div>
+    <div class="subbar"><button class="icon-btn" @click="router.push('/more')">‹</button><h3>用户设置</h3></div>
     <div style="padding:12px;">
-      <div class="sec-title" style="margin:2px 0 12px"><span>修改后台登录密码</span></div>
+      <div class="sec-title" style="margin:2px 0 12px"><span>修改登录密码</span></div>
       <div style="display:flex;flex-direction:column;gap:12px;">
         <input v-model="oldPwd" class="field" type="password" placeholder="原密码" autocomplete="current-password">
         <input v-model="newPwd" class="field" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password">

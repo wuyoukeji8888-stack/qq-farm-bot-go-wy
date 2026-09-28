@@ -17,6 +17,7 @@ func registerUserAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/users/renew", handleUserRenew)
 	mux.HandleFunc("/api/users/me", handleUserMe)
 	mux.HandleFunc("/api/users/delete", handleUserDelete)
+	mux.HandleFunc("/api/users/change-password", handleUserChangePassword)
 	mux.HandleFunc("/api/cards", handleCards)
 }
 
@@ -202,6 +203,40 @@ func handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	err := models.DeleteUser(body.Username)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// handleUserChangePassword: 修改用户密码
+func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var body struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if body.OldPassword == "" || body.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "旧密码和新密码不能为空")
+		return
+	}
+
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		writeError(w, http.StatusBadRequest, "缺少用户名")
+		return
+	}
+
+	err := models.ChangeUserPassword(username, body.OldPassword, body.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, map[string]interface{}{"ok": true})

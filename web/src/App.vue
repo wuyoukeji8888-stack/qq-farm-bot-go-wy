@@ -34,14 +34,17 @@ function isActive(t) {
 onMounted(async () => {
   // 应用持久化的主题（否则刷新后图标与页面主题不一致）
   document.documentElement.setAttribute('data-theme', app.theme)
-  await account.loadAdminStatus()
-  if (account.adminLoggedIn) {
+  
+  // 加载用户信息
+  if (account.userLoggedIn) {
     try {
+      await account.loadUserInfo()
       await account.loadAccounts()
     } catch (e) {
       /* 未登录则停留在登录页 */
     }
   }
+  
   // 优化1：首屏空闲时预加载各 tab 页面 chunk，切换 tab 即开不卡
   const preload = () => {
     import('@/views/Profile.vue')
@@ -71,7 +74,7 @@ function pickAccount(id) {
 </script>
 
 <template>
-  <div v-if="account.adminLoggedIn">
+  <div v-if="account.userLoggedIn">
     <!-- 左侧栏（桌面 ≥920px 显示，移动端由 style.css 隐藏） -->
     <aside class="sidebar">
       <div class="sb-brand"><span class="logo"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><path d="M12 9C12 4.5 7.5 3 7 3c.5 4.5 3 6 5 6z"/><path d="M12 9c0-4.5 4.5-6 5-6-.5 4.5-3 6-5 6z"/></svg></span> QQ农场 Bot</div>

@@ -24,11 +24,10 @@ const router = createRouter({
   routes,
 })
 
-// 鉴权守卫：未登录（本地无 token）且目标非 /login 时，重定向到登录/设置密码页。
-// status.hasPassword ? 登录 : 设置密码。避免未登录时渲染无导航栏的空壳首页。
+// 鉴权守卫：未登录（本地无 token）且目标非 /login 时，重定向到登录页。
 router.beforeEach((to) => {
   const account = useAccountStore()
-  if (!account.adminLoggedIn && to.path !== '/login') {
+  if (!account.userLoggedIn && to.path !== '/login') {
     return { path: '/login' }
   }
   return true

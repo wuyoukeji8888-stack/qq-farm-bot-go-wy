@@ -102,10 +102,10 @@ CGO_ENABLED=0 go build -o go-farm-bot .
 4. **获取卡密**：管理员可在 `users.json` 中添加卡密，用户可用卡密注册/续期
 5. **开启自动化**：登录后进入设置，添加微信账号后打开自动化开关
 
-> **⚠️ 安全提示**：首次登录后请尽快修改 `admin` 默认密码！
-> - 访问 `POST /api/users/login` 登录后记下 token
-> - 使用 `POST /api/admin/change-password` 修改密码
-> - 或直接修改 `users.json` 中的 password 字段
+> **⚠️ 安全提示**：首次登录后请尽快修改默认密码！
+> - 默认管理员账号：`admin` / `admin`（首次启动自动创建）
+> - 登录后进入「设置」页面修改密码
+> - 或直接编辑 `users.json` 中的 password 字段
 
 ### 多用户系统
 
@@ -116,12 +116,17 @@ CGO_ENABLED=0 go build -o go-farm-bot .
 
 登录方式：
 ```bash
-# 1. 登录获取 token
+# 1. 注册新用户（使用卡密）
+curl -X POST http://localhost:3009/api/users/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"user1","password":"pass1234","cardCode":"XXXX-XXXX"}'
+
+# 2. 登录获取 token
 curl -X POST http://localhost:3009/api/users/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin"}'
 
-# 2. 使用 token 访问功能面板
+# 3. 使用 token 访问功能面板
 curl http://localhost:3009/api/accounts \
   -H "Authorization: Bearer <token>"
 ```

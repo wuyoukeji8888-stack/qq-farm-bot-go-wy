@@ -770,3 +770,26 @@ func GetCardClaimRecords() []CardClaimRecord {
 	}
 	return records
 }
+
+// ChangeUserPassword 修改用户密码
+func ChangeUserPassword(username, oldPassword, newPassword string) error {
+	var user *User
+	for i := range users {
+		if users[i].Username == username {
+			user = &users[i]
+			break
+		}
+	}
+	if user == nil {
+		return errors.New("用户不存在")
+	}
+	if !verifyPassword(oldPassword, user.Password) {
+		return errors.New("原密码错误")
+	}
+	if errs := validatePasswordStrength(newPassword); len(errs) > 0 {
+		return errors.New(errs[0])
+	}
+	user.Password = hashPassword(newPassword)
+	saveUsers()
+	return nil
+}
