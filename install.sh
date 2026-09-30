@@ -2,7 +2,8 @@
 # ============================================================
 #  QQ Farm Bot GO 一键部署
 #
-#  用法（root）:  bash install.sh
+#  用法（root）:  bash install.sh            # 完整安装
+#                 bash install.sh update     # 只更新代码、前后端、重启服务
 #
 #  适配：Rocky Linux 9.x（dnf）以及 Debian/Ubuntu（apt）
 #  目标机建议：2C2G、端口 3009、工作目录 /opt/go-farm-bot
@@ -27,6 +28,49 @@ echo " 源码: $SRC"
 echo " 安装: $DES"
 echo " 端口: $ADMIN_PORT"
 echo "=========================================="
+
+# 简易 update 模式：只拉取、构建、重启，不重装依赖
+if [ "${1:-install}" = "update" ]; then
+  echo "[update] 进入快速更新模式..."
+  # 拉取最新代码
+  if [ -d .git ]; then
+    git fetch origin
+    git reset --hard origin/master
+  fi
+  # 前端构建
+  echo "[update/1] 构建前端..."
+  cd "$SRC/web"
+  npm ci || npm install
+  npm run build
+  cd "$SRC"
+  # 编译 Go
+  echo "[update/2] 编译后端..."
+  VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo dev)
+  printf 'package main\n\nvar buildVersion = "%s"\nvar buildTime = "%s"\n' \
+    "$VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > version.go
+  go build -ldflags="-s -w" -o go-farm-bot .
+  # 部署与重启
+  mkdir -p "$DES"
+  cp -f "$SRC/go-farm-bot" "$DES/"
+  chmod +x "$DES/go-farm-bot"
+  cp -a "$SRC/game-config" "$DES/" 2>/dev/null || true
+  if systemctl list-unit-files go-farm-bot.service >/dev/null 2>&1; then
+    systemctl daemon-reload
+    systemctl restart go-farm-bot
+  else
+    pkill -f go-farm-bot || true
+    nohup "$DES/go-farm-bot" > /var/log/go-farm-bot.log 2>&1 &
+  fi
+  sleep 2
+  if curl -fsS "http://127.0.0.1:${ADMIN_PORT}/api/health" >/dev/null 2>&1; then
+    echo "  health 检查通过"
+  else
+    echo "  health 暂未就绪，请稍后检查"
+  fi
+  echo ""
+  echo "更新完成"
+  exit 0
+fi
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
