@@ -14,6 +14,7 @@ const editing = ref(null)
 const editLimit = ref(2)
 const editDays = ref(30)
 const editPermanent = ref(false)
+const editPassword = ref('')
 const saving = ref(false)
 
 async function loadUsers() {
@@ -83,6 +84,7 @@ function startEdit(user) {
   editPermanent.value = !!user.isPermanent
   const days = remainingDays(user)
   editDays.value = days > 0 ? days : 30
+  editPassword.value = ''
 }
 
 function cancelEdit() {
@@ -100,6 +102,9 @@ async function saveEdit(username) {
       payload.permanent = true
     } else {
       payload.days = Number(editDays.value)
+    }
+    if (editPassword.value) {
+      payload.password = editPassword.value
     }
     const { data } = await api.post('/api/admin/users', payload)
     if (data.ok) {
@@ -156,6 +161,8 @@ onMounted(loadUsers)
                 <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
                   <input type="checkbox" v-model="editPermanent"> 永久时长
                 </label>
+                <input v-model="editPassword" type="password" class="field" placeholder="新密码（留空不修改）" style="margin-top:4px">
+                <div style="font-size:11px;color:var(--muted);">密码需至少 8 位，并包含大小写字母、数字或符号</div>
                 <div style="display:flex;gap:8px;">
                   <button :disabled="saving" style="flex:1;padding:8px;border-radius:8px;background:var(--primary,#3b82f6);color:#fff;border:none;cursor:pointer;" @click="saveEdit(user.username)">{{ saving ? '保存中...' : '保存' }}</button>
                   <button style="flex:1;padding:8px;border-radius:8px;background:var(--card-strong);border:1px solid var(--border);cursor:pointer;" @click="cancelEdit">取消</button>

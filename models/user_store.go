@@ -886,6 +886,31 @@ func ChangeUserPassword(username, oldPassword, newPassword string) error {
 	return nil
 }
 
+// AdminChangeUserPassword 管理员直接修改用户密码（不校验旧密码）
+func AdminChangeUserPassword(username, newPassword string) error {
+	userStoreMu.Lock()
+	defer userStoreMu.Unlock()
+	var user *User
+	for i := range users {
+		if users[i].Username == username {
+			user = &users[i]
+			break
+		}
+	}
+	if user == nil {
+		return errors.New("用户不存在")
+	}
+	if user.Role == "admin" || user.Role == "super_admin" {
+		return errors.New("不能修改管理员密码")
+	}
+	if errs := validatePasswordStrength(newPassword); len(errs) > 0 {
+		return errors.New(errs[0])
+	}
+	user.Password = hashPassword(newPassword)
+	saveUsers()
+	return nil
+}
+
 // GetAllCards 获取所有卡密列表
 func GetAllCards() []Card {
 	userStoreMu.Lock()

@@ -463,6 +463,7 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			ExpiresAt    *int64 `json:"expiresAt"`
 			Days         *int   `json:"days"`
 			Permanent    *bool  `json:"permanent"`
+			Password     string `json:"password,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "参数错误")
@@ -491,6 +492,12 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		if err := models.UpdateUserLimits(body.Username, expiresAt, body.AccountLimit); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		if body.Password != "" {
+			if err := models.AdminChangeUserPassword(body.Username, body.Password); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 		}
 		writeJSON(w, map[string]interface{}{"ok": true})
 	case http.MethodDelete:
