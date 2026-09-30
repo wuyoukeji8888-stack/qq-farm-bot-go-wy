@@ -272,6 +272,21 @@ func validatePasswordStrength(password string) []string {
 	}
 	return errors
 }
+	if len(password) > 128 {
+		errors = append(errors, "密码长度不能超过128位")
+	}
+	return errors
+}
+	if len(password) > 128 {
+		errors = append(errors, "密码长度不能超过128位")
+	}
+	return errors
+}
+	if len(password) > 128 {
+		errors = append(errors, "密码长度不能超过128位")
+	}
+	return errors
+}
 
 func generateCardCode() string {
 	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

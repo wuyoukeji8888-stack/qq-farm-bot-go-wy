@@ -84,7 +84,7 @@ function remainingDays(user) {
 function startEdit(user) {
   editing.value = user.username
   editUnlimited.value = user.accountLimit === -1
-  editLimit.value = user.accountLimit === -1 ? 2 : (user.accountLimit || 2)
+  editLimit.value = editUnlimited.value ? -1 : (user.accountLimit || 2)
   editPermanent.value = !!user.isPermanent
   const days = remainingDays(user)
   editDays.value = days > 0 ? days : 30
@@ -98,9 +98,10 @@ function cancelEdit() {
 async function saveEdit(username) {
   saving.value = true
   try {
+    const accountLimit = editUnlimited.value ? -1 : Number(editLimit.value)
     const payload = {
       username,
-      accountLimit: editUnlimited.value ? -1 : Number(editLimit.value)
+      accountLimit
     }
     if (editPermanent.value) {
       payload.permanent = true
@@ -159,12 +160,17 @@ onMounted(loadUsers)
               </div>
               <div v-if="editing === user.username && user.role !== 'admin'" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
                 <div style="display:flex;gap:8px;">
-                  <input v-model.number="editLimit" type="number" class="field" :disabled="editUnlimited" placeholder="账号上限" style="flex:1">
+                  <input v-model.number="editLimit" type="number" class="field" placeholder="账号上限" style="flex:1" :disabled="editUnlimited">
                   <input v-if="!editPermanent" v-model.number="editDays" type="number" class="field" placeholder="剩余天数" style="flex:1">
                 </div>
-                <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
-                  <input type="checkbox" v-model="editUnlimited"> 无限账号
-                </label>
+                <div style="display:flex;gap:12px;font-size:12px;align-items:center;">
+                  <label style="display:flex;align-items:center;gap:6px;">
+                    <input type="checkbox" v-model="editUnlimited"> 无限账号
+                  </label>
+                  <label style="display:flex;align-items:center;gap:6px;">
+                    <input type="checkbox" v-model="editPermanent"> 永久时长
+                  </label>
+                </div>
                 <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
                   <input type="checkbox" v-model="editPermanent"> 永久时长
                 </label>
