@@ -40,6 +40,7 @@ var (
 	userDataDir       string
 	cardClaimEnabled  = true
 	userTokens        = make(map[string]time.Time) // token -> expiry
+	userTokenToUsername = make(map[string]string) // token -> username
 	userTokensMu      sync.Mutex
 )
 
@@ -80,13 +81,15 @@ type Card struct {
 }
 
 type User struct {
-	Username     string      `json:"username"`
-	Password     string      `json:"password"`
-	Role         string      `json:"role"` // "admin", "user"
-	CardCode     string      `json:"cardCode,omitempty"`
-	Card         *Card       `json:"card,omitempty"`
-	AccountLimit int         `json:"accountLimit,omitempty"`
-	CreatedAt    int64       `json:"createdAt"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	Role         string `json:"role"` // "admin", "user"
+	CardCode     string `json:"cardCode,omitempty"`
+	Card         *Card  `json:"card,omitempty"`
+	AccountLimit int    `json:"accountLimit,omitempty"`
+	ExpiresAt    int64  `json:"expiresAt,omitempty"`
+	IsPermanent  bool   `json:"isPermanent,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
 }
 
 type AuthResult struct {
@@ -482,6 +485,21 @@ func RegisterUser(username, password, cardCode string) RegisterResult {
 		return RegisterResult{Error: errs[0]}
 	}
 	
+	// 卡密为必填项，不允许无卡密注册
+	if cardCode == "" {
+		// 检查是否有可用的空闲卡密
+		availableCount := 0
+		for _, c := range cards {
+			if c.Type == "time" && c.UsedBy == "" && c.Enabled {
+				availableCount++
+			}
+		}
+		if availableCount == 0 {
+			return RegisterResult{Error: "注册失败，请联系管理员"}
+		}
+		return RegisterResult{Error: "请输入卡密"}
+	}
+	
 	var card *Card
 	for i := range cards {
 		if cards[i].Code == cardCode {
@@ -494,7 +512,7 @@ func RegisterUser(username, password, cardCode string) RegisterResult {
 		return RegisterResult{Error: "卡密不存在"}
 	}
 	if !card.Enabled {
-		return RegisterResult{Error: "卡密已被禁用"}
+		return RegisterResult{Error: "卡密已被禁用，请联系管理员"}
 	}
 	if card.UsedBy != "" {
 		return RegisterResult{Error: "卡密已被使用"}
@@ -510,40 +528,46 @@ func RegisterUser(username, password, cardCode string) RegisterResult {
 	}
 	expiresAt := now + durationMs
 	
+	cardCopy := *card
+	cardCopy.UsedBy = username
+	cardCopy.UsedAt = now
+	cardCopy.ExpiresAt = expiresAt
 	newUser := User{
 		Username:     username,
 		Password:     hashPassword(password),
 		Role:         "user",
 		CardCode:     cardCode,
+		Card:         &cardCopy,
 		AccountLimit: defaultAccountLimit,
+		ExpiresAt:    expiresAt,
 		CreatedAt:    now,
 	}
 	
-	cards = append(cards, Card{
-		Code:        card.Code,
-		Description: card.Description,
-		Type:        card.Type,
-		Enabled:     true,
-		UsedBy:      username,
-		UsedAt:      now,
-		CreatedAt:   card.CreatedAt,
-		Days:        card.Days,
-		ExpiresAt:   expiresAt,
-	})
+	// 更新卡密使用状态
+	cards[findCardIndex(cardCode)].UsedBy = username
+	cards[findCardIndex(cardCode)].UsedAt = now
+	cards[findCardIndex(cardCode)].ExpiresAt = expiresAt
 	
 	users = append(users, newUser)
 	saveUsers()
 	saveCards()
 	
-	return RegisterResult{
-		Ok: true,
-		User: &AuthResult{
-			Username:     newUser.Username,
-			Role:         newUser.Role,
-			CardCode:     newUser.CardCode,
-			AccountLimit: newUser.AccountLimit,
-		},
+	return RegisterResult{Ok: true, User: &AuthResult{
+		Username:     newUser.Username,
+		Role:         newUser.Role,
+		CardCode:     newUser.CardCode,
+		AccountLimit: newUser.AccountLimit,
+	}}
+}
+
+// findCardIndex 根据卡密代码查找卡密在 cards 切片中的索引
+func findCardIndex(code string) int {
+	for i, c := range cards {
+		if c.Code == code {
+			return i
+		}
 	}
+	return -1
 }
 
 func RenewUser(username, cardCode string) (bool, string, error) {
@@ -577,46 +601,68 @@ func RenewUser(username, cardCode string) (bool, string, error) {
 	
 	now := time.Now().UnixMilli()
 	
+	msg := "续费成功"
 	if card.Type == "quota" {
-		user.AccountLimit += card.Value
+		add := card.Value
+		if add <= 0 {
+			add = 1
+		}
+		if user.AccountLimit == -1 {
+			msg = "当前账号上限为无限，额度卡密已核销"
+		} else {
+			if user.AccountLimit <= 0 {
+				user.AccountLimit = defaultAccountLimit
+			}
+			user.AccountLimit += add
+			msg = fmt.Sprintf("续费成功，账号上限已提升至 %d", user.AccountLimit)
+		}
 	} else {
 		if user.Card == nil {
-			user.Card = &Card{
-				Code:        card.Code,
-				Description: card.Description,
-				Type:        card.Type,
-				Enabled:     true,
-				CreatedAt:   card.CreatedAt,
-			}
+			copied := *card
+			user.Card = &copied
 		}
-		
-		prevExpiresAt := user.Card.ExpiresAt
-		if prevExpiresAt == 0 || prevExpiresAt < now {
+
+		prevExpiresAt := user.ExpiresAt
+		if prevExpiresAt == 0 {
+			prevExpiresAt = user.Card.ExpiresAt
+		}
+		if prevExpiresAt > 0 && prevExpiresAt < now {
 			prevExpiresAt = 0
 		}
-		
+
 		if card.IsPermanent {
+			user.IsPermanent = true
+			user.ExpiresAt = 0
 			user.Card.ExpiresAt = 0
 			user.Card.DurationMs = -1
 			user.Card.Days = -1
+			user.Card.IsPermanent = true
+			msg = "续费成功，已开通永久时长"
 		} else {
+			var newExp int64
 			if prevExpiresAt > now {
-				user.Card.ExpiresAt = prevExpiresAt + card.DurationMs
+				newExp = prevExpiresAt + card.DurationMs
 			} else {
-				user.Card.ExpiresAt = now + card.DurationMs
+				newExp = now + card.DurationMs
 			}
+			user.ExpiresAt = newExp
+			user.Card.ExpiresAt = newExp
 			user.Card.Days = card.Days
 			user.Card.DurationMs = card.DurationMs
 		}
+		user.CardCode = card.Code
 	}
-	
-	card.UsedBy = username
-	card.UsedAt = now
-	
+
+	idx := findCardIndex(cardCode)
+	if idx >= 0 {
+		cards[idx].UsedBy = username
+		cards[idx].UsedAt = now
+	}
+
 	saveUsers()
 	saveCards()
-	
-	return true, "续费成功", nil
+
+	return true, msg, nil
 }
 
 func GetAllUsers() []User {
@@ -719,6 +765,18 @@ func NewUserToken() (string, error) {
 	return tok, nil
 }
 
+// NewUserTokenForUser 为指定用户生成登录 token
+func NewUserTokenForUser(username string) (string, error) {
+	tok, err := NewUserToken()
+	if err != nil {
+		return "", err
+	}
+	userTokensMu.Lock()
+	userTokenToUsername[tok] = username
+	userTokensMu.Unlock()
+	return tok, nil
+}
+
 // UserTokenValid 校验用户 token 是否有效
 func UserTokenValid(tok string) bool {
 	if tok == "" {
@@ -732,15 +790,49 @@ func UserTokenValid(tok string) bool {
 	}
 	if time.Now().After(exp) {
 		delete(userTokens, tok)
+		delete(userTokenToUsername, tok)
 		return false
 	}
 	return true
+}
+
+// GetUserByToken 根据 token 获取用户信息
+func GetUserByToken(tok string) *User {
+	if tok == "" {
+		return nil
+	}
+	
+	userTokensMu.Lock()
+	defer userTokensMu.Unlock()
+	
+	exp, ok := userTokens[tok]
+	if !ok {
+		return nil
+	}
+	if time.Now().After(exp) {
+		delete(userTokens, tok)
+		delete(userTokenToUsername, tok)
+		return nil
+	}
+	
+	username, ok := userTokenToUsername[tok]
+	if !ok {
+		return nil
+	}
+	
+	for i := range users {
+		if users[i].Username == username {
+			return &users[i]
+		}
+	}
+	return nil
 }
 
 // RevokeUserToken 注销用户 token
 func RevokeUserToken(tok string) {
 	userTokensMu.Lock()
 	delete(userTokens, tok)
+	delete(userTokenToUsername, tok)
 	userTokensMu.Unlock()
 }
 
@@ -792,4 +884,205 @@ func ChangeUserPassword(username, oldPassword, newPassword string) error {
 	user.Password = hashPassword(newPassword)
 	saveUsers()
 	return nil
+}
+
+// GetAllCards 获取所有卡密列表
+func GetAllCards() []Card {
+	userStoreMu.Lock()
+	defer userStoreMu.Unlock()
+	
+	result := make([]Card, len(cards))
+	copy(result, cards)
+	return result
+}
+
+// GenerateCards 批量生成时间卡密
+func GenerateCards(count int, description string, durationMs int64) ([]string, error) {
+	userStoreMu.Lock()
+	defer userStoreMu.Unlock()
+	
+	if count <= 0 || count > 1000 {
+		return nil, errors.New("生成数量必须在 1-1000 之间")
+	}
+	
+	codes := make([]string, count)
+	now := time.Now().UnixMilli()
+	days := 0
+	if durationMs > 0 {
+		days = int(durationMs / (24 * 60 * 60 * 1000))
+	}
+	
+	for i := 0; i < count; i++ {
+		code := generateCardCode()
+		card := Card{
+			Code:        code,
+			Description: description,
+			Type:        "time",
+			Enabled:     true,
+			CreatedAt:   now,
+			Days:        days,
+			DurationMs:  durationMs,
+			IsPermanent: false,
+		}
+		cards = append(cards, card)
+		codes[i] = code
+	}
+	
+	saveCards()
+	return codes, nil
+}
+
+// GenerateQuotaCards 批量生成额度卡密（提升账号上限）
+func GenerateQuotaCards(count int, description string, value int) ([]string, error) {
+	userStoreMu.Lock()
+	defer userStoreMu.Unlock()
+
+	if count <= 0 || count > 1000 {
+		return nil, errors.New("生成数量必须在 1-1000 之间")
+	}
+	if value <= 0 {
+		value = 1
+	}
+
+	codes := make([]string, count)
+	now := time.Now().UnixMilli()
+	if description == "" {
+		description = fmt.Sprintf("额度卡密 +%d 账号", value)
+	}
+
+	for i := 0; i < count; i++ {
+		code := generateCardCode()
+		card := Card{
+			Code:        code,
+			Description: description,
+			Type:        "quota",
+			Enabled:     true,
+			CreatedAt:   now,
+			Value:       value,
+		}
+		cards = append(cards, card)
+		codes[i] = code
+	}
+
+	saveCards()
+	return codes, nil
+}
+
+// UpdateUserLimits 管理员修改用户时长与账号上限。
+// expiresAtMs < 0 表示不改到期时间；expiresAtMs == 0 表示永久。
+// accountLimit == nil 表示不改账号上限；*accountLimit == -1 表示无限。
+func UpdateUserLimits(username string, expiresAtMs int64, accountLimit *int) error {
+	userStoreMu.Lock()
+	defer userStoreMu.Unlock()
+
+	var user *User
+	for i := range users {
+		if users[i].Username == username {
+			user = &users[i]
+			break
+		}
+	}
+	if user == nil {
+		return errors.New("用户不存在")
+	}
+	if user.Role == "admin" || user.Role == "super_admin" {
+		return errors.New("不能修改管理员账号")
+	}
+
+	if expiresAtMs >= 0 {
+		if expiresAtMs == 0 {
+			user.IsPermanent = true
+			user.ExpiresAt = 0
+			if user.Card != nil {
+				user.Card.IsPermanent = true
+				user.Card.ExpiresAt = 0
+				user.Card.DurationMs = -1
+				user.Card.Days = -1
+			}
+		} else {
+			user.IsPermanent = false
+			user.ExpiresAt = expiresAtMs
+			if user.Card != nil {
+				user.Card.IsPermanent = false
+				user.Card.ExpiresAt = expiresAtMs
+			}
+		}
+	}
+
+	if accountLimit != nil {
+		if *accountLimit < -1 {
+			return errors.New("账号上限无效")
+		}
+		user.AccountLimit = *accountLimit
+	}
+
+	saveUsers()
+	return nil
+}
+
+func EffectiveAccountLimit(user *User) int {
+	if user == nil {
+		return defaultAccountLimit
+	}
+	if user.AccountLimit == -1 {
+		return -1
+	}
+	if user.AccountLimit <= 0 {
+		return defaultAccountLimit
+	}
+	return user.AccountLimit
+}
+
+func UserExpired(user *User) bool {
+	if user == nil {
+		return true
+	}
+	if user.Role == "admin" || user.Role == "super_admin" || user.IsPermanent {
+		return false
+	}
+	exp := user.ExpiresAt
+	if exp == 0 && user.Card != nil {
+		if user.Card.IsPermanent {
+			return false
+		}
+		exp = user.Card.ExpiresAt
+	}
+	if exp == 0 {
+		return false
+	}
+	return time.Now().UnixMilli() > exp
+}
+
+// ToggleCards 批量启用/禁用卡密
+func ToggleCards(codes []string, enabled bool) {
+	userStoreMu.Lock()
+	defer userStoreMu.Unlock()
+	
+	for _, code := range codes {
+		for i := range cards {
+			if cards[i].Code == code {
+				cards[i].Enabled = enabled
+				break
+			}
+		}
+	}
+	
+	saveCards()
+}
+
+// DeleteCards 批量删除卡密（仅删除未使用的）
+func DeleteCards(codes []string) {
+	userStoreMu.Lock()
+	defer userStoreMu.Unlock()
+	
+	for _, code := range codes {
+		for i := range cards {
+			if cards[i].Code == code && cards[i].UsedBy == "" {
+				cards = append(cards[:i], cards[i+1:]...)
+				break
+			}
+		}
+	}
+	
+	saveCards()
 }

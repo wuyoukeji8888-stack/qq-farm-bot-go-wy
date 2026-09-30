@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import api, { setAccountId } from '@/api'
 import { useAppStore } from '@/stores/app'
 import { useAccountStore } from '@/stores/account'
@@ -13,6 +13,11 @@ const accounts = ref([])
 const activeId = ref('')          // 当前 active 账号（来自 GET /api/accounts/active）
 const sheet = ref('')             // '' | manage | add | qr
 const editing = ref(null)
+const limitText = computed(() => {
+  const n = account.userInfo?.accountLimit
+  if (n === -1) return '无限'
+  return String(n || 2)
+})
 
 /* ---------- 加载账号列表 + 当前 active ---------- */
 async function loadAccounts() {
@@ -287,7 +292,7 @@ onUnmounted(() => { stopQr(); window.removeEventListener('account-switched', onA
       <p v-if="!accounts.length" style="font-size:12px;color:var(--muted);text-align:center;padding:16px 0">暂无账号</p>
     </div>
 
-    <div class="sec-title"><span>添加账号</span></div>
+    <div class="sec-title"><span>添加账号</span><span style="font-size:12px;color:var(--muted)">{{ accounts.length }} / {{ limitText }}</span></div>
     <div class="menu">
       <button class="sub-item" @click="sheet='add'"><span class="mi">🔑</span>手动添加 code<span class="arr">›</span></button>
       <button class="sub-item" @click="sheet='qr'; loadRc(); startQrLogin()"><span class="mi">📱</span>扫码登录<span class="arr">›</span></button>

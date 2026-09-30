@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Aoluis1005/go-farm-bot/models"
 )
@@ -19,6 +20,9 @@ func registerUserAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/users/delete", handleUserDelete)
 	mux.HandleFunc("/api/users/change-password", handleUserChangePassword)
 	mux.HandleFunc("/api/cards", handleCards)
+	// 管理员卡密管理接口
+	mux.HandleFunc("/api/admin/cards", handleAdminCards)
+	mux.HandleFunc("/api/admin/users", handleAdminUsers)
 }
 
 // ---- 用户管理 ----
@@ -81,8 +85,8 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 生成登录 token
-	token, err := models.NewUserToken()
+	// 生成登录 token（关联用户名）
+	token, err := models.NewUserTokenForUser(body.Username)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "生成token失败")
 		return
@@ -132,30 +136,43 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleUserMe: 获取当前用户信息
+// handleUserMe: 获取当前用户信息（基于 token）
 func handleUserMe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	username := r.URL.Query().Get("username")
-	if username == "" {
-		writeError(w, http.StatusBadRequest, "缺少用户名")
+	// 从 token 中获取用户名
+	token := userTokenFromRequest(r)
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "未登录")
 		return
 	}
 
-	users := models.GetAllUsers()
-	for _, u := range users {
-		if u.Username == username {
-			writeJSON(w, map[string]interface{}{
-				"ok":  true,
-				"user": u,
-			})
-			return
-		}
+	user := models.GetUserByToken(token)
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "token 无效")
+		return
 	}
-	writeError(w, http.StatusNotFound, "用户不存在")
+
+	limit := models.EffectiveAccountLimit(user)
+	expiresAt := user.ExpiresAt
+	if expiresAt == 0 && user.Card != nil {
+		expiresAt = user.Card.ExpiresAt
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok": true,
+		"user": map[string]interface{}{
+			"username":     user.Username,
+			"role":         user.Role,
+			"cardCode":     user.CardCode,
+			"accountLimit": limit,
+			"expiresAt":    expiresAt,
+			"isPermanent":  user.IsPermanent || (user.Card != nil && user.Card.IsPermanent),
+			"createdAt":    user.CreatedAt,
+		},
+	})
 }
 
 // handleUserRenew: 用户续期（使用卡密）
@@ -170,6 +187,15 @@ func handleUserRenew(w http.ResponseWriter, r *http.Request) {
 		CardCode string `json:"cardCode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if tok := userTokenFromRequest(r); tok != "" {
+		if u := models.GetUserByToken(tok); u != nil {
+			body.Username = u.Username
+		}
+	}
+	if body.Username == "" || body.CardCode == "" {
 		writeError(w, http.StatusBadRequest, "参数错误")
 		return
 	}
@@ -290,4 +316,196 @@ func handleUserClaimCard(w http.ResponseWriter, r *http.Request) {
 		"durationMs": result.DurationMs,
 		"error":  result.Error,
 	})
+}
+
+func requireAdminUser(w http.ResponseWriter, r *http.Request) bool {
+	token := userTokenFromRequest(r)
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "未登录或登录已过期，请先登录")
+		return false
+	}
+	u := models.GetUserByToken(token)
+	if u == nil || u.Role != "admin" {
+		writeError(w, http.StatusForbidden, "请联系管理员")
+		return false
+	}
+	return true
+}
+
+// ---- 管理员卡密管理 ----
+
+// handleAdminCards: 管理员卡密管理
+func handleAdminCards(w http.ResponseWriter, r *http.Request) {
+	if !requireAdminUser(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		// 获取所有卡密列表
+		cards := models.GetAllCards()
+		writeJSON(w, map[string]interface{}{"ok": true, "cards": cards})
+	case http.MethodPost:
+		var body struct {
+			Action      string   `json:"action"`
+			Description string   `json:"description"`
+			Days        int      `json:"days"`
+			Count       int      `json:"count"`
+			CardType    string   `json:"cardType,omitempty"`
+			Value       int      `json:"value,omitempty"`
+			Codes       []string `json:"codes,omitempty"`
+			Enabled     *bool    `json:"enabled,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "参数错误")
+			return
+		}
+
+		switch body.Action {
+		case "generate":
+			if body.Count <= 0 {
+				body.Count = 10
+			}
+			cardType := body.CardType
+			if cardType == "" {
+				cardType = "time"
+			}
+			var cardCodes []string
+			var err error
+			if cardType == "quota" {
+				value := body.Value
+				if value <= 0 {
+					value = 1
+				}
+				cardCodes, err = models.GenerateQuotaCards(body.Count, body.Description, value)
+			} else {
+				if body.Days <= 0 {
+					body.Days = 30
+				}
+				durationMs := int64(body.Days) * 24 * 60 * 60 * 1000
+				cardCodes, err = models.GenerateCards(body.Count, body.Description, durationMs)
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, map[string]interface{}{"ok": true, "codes": cardCodes})
+		case "toggle":
+			if len(body.Codes) == 0 {
+				writeError(w, http.StatusBadRequest, "请指定卡密")
+				return
+			}
+			if body.Enabled == nil {
+				writeError(w, http.StatusBadRequest, "请指定启用状态")
+				return
+			}
+			models.ToggleCards(body.Codes, *body.Enabled)
+			writeJSON(w, map[string]interface{}{"ok": true})
+		case "delete":
+			if len(body.Codes) == 0 {
+				writeError(w, http.StatusBadRequest, "请指定卡密")
+				return
+			}
+			models.DeleteCards(body.Codes)
+			writeJSON(w, map[string]interface{}{"ok": true})
+		default:
+			writeError(w, http.StatusBadRequest, "未知操作")
+		}
+	case http.MethodDelete:
+		var body struct {
+			Codes []string `json:"codes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "参数错误")
+			return
+		}
+		models.DeleteCards(body.Codes)
+		writeJSON(w, map[string]interface{}{"ok": true})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// ---- 管理员用户管理 ----
+
+// handleAdminUsers: 管理员用户管理
+func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
+	if !requireAdminUser(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		users := models.GetAllUsers()
+		var result []map[string]interface{}
+		for _, u := range users {
+			if u.Role == "super_admin" {
+				continue
+			}
+			limit := models.EffectiveAccountLimit(&u)
+			expiresAt := u.ExpiresAt
+			if expiresAt == 0 && u.Card != nil {
+				expiresAt = u.Card.ExpiresAt
+			}
+			result = append(result, map[string]interface{}{
+				"username":     u.Username,
+				"role":         u.Role,
+				"cardCode":     u.CardCode,
+				"accountLimit": limit,
+				"expiresAt":    expiresAt,
+				"isPermanent":  u.IsPermanent || (u.Card != nil && u.Card.IsPermanent),
+				"createdAt":    u.CreatedAt,
+			})
+		}
+		writeJSON(w, map[string]interface{}{"ok": true, "users": result})
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+		var body struct {
+			Username     string `json:"username"`
+			AccountLimit *int   `json:"accountLimit"`
+			ExpiresAt    *int64 `json:"expiresAt"`
+			Days         *int   `json:"days"`
+			Permanent    *bool  `json:"permanent"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "参数错误")
+			return
+		}
+		if body.Username == "" {
+			writeError(w, http.StatusBadRequest, "请指定用户名")
+			return
+		}
+		expiresAt := int64(-1)
+		if body.Permanent != nil && *body.Permanent {
+			expiresAt = 0
+		} else if body.ExpiresAt != nil {
+			expiresAt = *body.ExpiresAt
+		} else if body.Days != nil {
+			if *body.Days < 0 {
+				writeError(w, http.StatusBadRequest, "天数无效")
+				return
+			}
+			if *body.Days == 0 {
+				expiresAt = 0
+			} else {
+				expiresAt = time.Now().UnixMilli() + int64(*body.Days)*24*60*60*1000
+			}
+		}
+		if err := models.UpdateUserLimits(body.Username, expiresAt, body.AccountLimit); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, map[string]interface{}{"ok": true})
+	case http.MethodDelete:
+		var body struct {
+			Usernames []string `json:"usernames"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "参数错误")
+			return
+		}
+		for _, username := range body.Usernames {
+			models.DeleteUser(username)
+		}
+		writeJSON(w, map[string]interface{}{"ok": true})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }

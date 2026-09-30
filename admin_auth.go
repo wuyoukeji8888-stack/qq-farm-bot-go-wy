@@ -315,9 +315,7 @@ func handleAdminSystemConfig(w http.ResponseWriter, r *http.Request) {
 
 func apiPublicPath(path string) bool {
 	switch path {
-	case "/api/health", "/api/admin/status", "/api/admin/login", "/api/admin/setup":
-		// 多用户系统公开端点
-	case "/api/users/register", "/api/users/login":
+	case "/api/health", "/api/admin/status", "/api/admin/login", "/api/admin/setup", "/api/users/register", "/api/users/login", "/api/users/claim-card":
 		return true
 	}
 	return false

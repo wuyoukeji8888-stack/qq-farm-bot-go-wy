@@ -138,15 +138,16 @@ function pickAccount(id) {
       <button class="close" style="margin-top:16px" @click="showAcc = false">关闭</button>
     </div>
 
-    <!-- 全局 toast -->
-    <div class="toast-wrap">
-      <div v-for="t in app.toasts" :key="t.id" class="toast" :class="'toast-' + t.type">
-        {{ t.message }}
-      </div>
-    </div>
   </div>
 
   <router-view v-else />
+
+  <!-- 全局 toast：登录页也需要显示错误提示 -->
+  <div class="toast-wrap">
+    <div v-for="t in app.toasts" :key="t.id" class="toast" :class="'toast-' + t.type">
+      {{ t.message }}
+    </div>
+  </div>
 </template>
 
 <style>

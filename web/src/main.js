@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { useAccountStore } from '@/stores/account'
 import './style.css'
 import './layout.css'
 
@@ -20,5 +21,13 @@ app.config.errorHandler = (err) => {
   console.error('Vue 错误:', err)
 }
 app.config.warnHandler = () => {}
+
+// 自动登录：若本地存储有 token，尝试恢复登录状态
+router.isReady().then(() => {
+  const account = useAccountStore()
+  if (account.userLoggedIn) {
+    account.loadUserInfo().catch(() => {})
+  }
+})
 
 app.mount('#app')

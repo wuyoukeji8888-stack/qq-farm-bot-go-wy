@@ -354,6 +354,32 @@ func GetAccounts() []Account {
 	return result
 }
 
+// GetAccountsByUsername 获取指定用户可见的农场账号（含未绑定用户名的旧数据）
+func GetAccountsByUsername(username string) []Account {
+	mu.RLock()
+	defer mu.RUnlock()
+	var result []Account
+	for _, acc := range accounts {
+		if acc.Username == username || acc.Username == "" {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
+// CountAccountsByUsername 统计指定用户已绑定的农场账号数量
+func CountAccountsByUsername(username string) int {
+	mu.RLock()
+	defer mu.RUnlock()
+	n := 0
+	for _, acc := range accounts {
+		if acc.Username == username {
+			n++
+		}
+	}
+	return n
+}
+
 // GetAccountByID 按 ID 查找账号
 func GetAccountByID(id string) *Account {
 	mu.RLock()

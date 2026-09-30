@@ -36,6 +36,11 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		accounts := models.GetAccounts()
+		if tok := userTokenFromRequest(r); tok != "" {
+			if u := models.GetUserByToken(tok); u != nil && u.Role != "admin" && u.Role != "super_admin" {
+				accounts = models.GetAccountsByUsername(u.Username)
+			}
+		}
 		// 在线状态用网关连接实时判断——
 		// 持久化 status 创建即 offline 且从不更新，故这里覆盖返回，不写库。
 		for i := range accounts {
@@ -74,6 +79,16 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 		if body.Platform == "" {
 			body.Platform = "qq"
 		}
+		ownerUsername := ""
+		if tok := userTokenFromRequest(r); tok != "" {
+			if u := models.GetUserByToken(tok); u != nil {
+				ownerUsername = u.Username
+				if models.UserExpired(u) {
+					writeError(w, 403, "账号已过期，请先续费")
+					return
+				}
+			}
+		}
 		// 去重：同一 openid 重扫（掉线重新扫码/应用宝）复用已有账号，避免重复添加
 		var acc models.Account
 		if body.OpenID != "" {
@@ -90,22 +105,34 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if acc.ID == "" {
+			if ownerUsername != "" {
+				if u, err := models.GetUserByUsername(ownerUsername); err == nil && u != nil {
+					limit := models.EffectiveAccountLimit(u)
+					if limit != -1 && models.CountAccountsByUsername(ownerUsername) >= limit {
+						writeError(w, 403, "已达账号上限，请使用额度卡密提升上限")
+						return
+					}
+				}
+			}
 			acc = models.Account{
-				ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
-				Name:      body.Name,
-				Code:      body.Code,
-				Platform:  body.Platform,
-				QQ:       body.QQ,
-				UIN:      body.UIN,
-				GID:      body.GID,
-				OpenID:   body.OpenID,
+				ID:         fmt.Sprintf("%d", time.Now().UnixNano()),
+				Name:       body.Name,
+				Username:   ownerUsername,
+				Code:       body.Code,
+				Platform:   body.Platform,
+				QQ:         body.QQ,
+				UIN:        body.UIN,
+				GID:        body.GID,
+				OpenID:     body.OpenID,
 				Thirdparty: body.Thirdparty,
-				Status:   "offline",
-				CreatedAt: time.Now().Format(time.RFC3339),
+				Status:     "offline",
+				CreatedAt:  time.Now().Format(time.RFC3339),
 			}
 			if acc.Name == "" {
 				acc.Name = "新账号"
 			}
+		} else if ownerUsername != "" && acc.Username == "" {
+			acc.Username = ownerUsername
 		}
 		result, err := models.AddOrUpdateAccount(acc)
 		if err != nil {

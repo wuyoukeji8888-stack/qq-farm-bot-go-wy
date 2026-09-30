@@ -1,41 +1,42 @@
-# QQ农场自动化助手（Go 版）
+# QQ农场自动化助手（纯AI零人工）
 
 本项目为二改，原项目：https://github.com/Aoluis1005/QQ-farm-BOT-GO
 
 ## 功能亮点
 
-- **多账号管理**：支持添加多个账号，统一界面管理
-- **多用户系统**：支持多用户登录、注册、卡密激活，完善的权限管理（admin/user角色）
-- **卡密系统**：支持卡密激活、用户续期、卡密发放与领取，防刷机制
-- **自动巡查**：自动偷菜、帮忙、收菜，省时省力
-- **活动中心**：查看活动状态，一键领取秋祈良愿、快乐不独享等奖励
+- **多账号管理**：支持添加多个农场账号，统一界面管理
+- **多用户系统**：支持多用户登录、注册、卡密激活，权限分为 admin / user
+- **卡密系统**：时间卡用于注册与续期，额度卡用于提升账号上限
+- **自动巡查**：自动偷菜、帮忙、收菜
+- **活动中心**：查看活动状态，手动领取秋祈良愿、快乐不独享等奖励
 - **Web 管理面板**：响应式设计，支持移动端访问
-- **一键部署**：install.sh 脚本自动安装依赖、编译前后端
+- **一键部署**：install.sh 自动安装依赖、编译前后端
 - **Docker 支持**：docker-compose 一键启动，数据持久化
 
 ### 多用户与卡密系统
 
-本项目集成了完善的多用户管理系统和卡密激活机制：
-
-- **用户注册/登录**：支持多用户注册账号，密码经 PBKDF2 加密存储
-- **角色权限**：admin 角色拥有全部权限，user 角色受限于卡密时长
-- **卡密激活**：用户可通过卡密激活账号，获得指定天数的使用权限
-- **续期续费**：支持使用卡密为已有用户续期
-- **卡密防刷**：每IP每24小时限领1张卡密， UA 绑定防作弊
+- **用户注册/登录**：注册必须使用时间卡密；密码经 PBKDF2 加密存储
+- **角色权限**：admin 拥有卡密管理、用户管理全部权限；user 受卡密时长和账号上限限制
+- **时间卡**：用于注册或续期，按天数延长使用期限
+- **额度卡**：登录后在「后台」使用，提升可绑定的农场账号数量（默认上限 2）
+- **管理员操作**：在「更多 → 卡密管理」批量生成时间卡/额度卡；在「用户管理」调整到期时间和账号上限
+- **免费领取**：注册页可领取空闲时间卡，同一 UA 24 小时限领 1 张
 
 ### API 接口概览
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/users/register` | POST | 用户注册 |
+| `/api/users/register` | POST | 用户注册（必须时间卡密） |
 | `/api/users/login` | POST | 用户登录 |
-| `/api/users/me` | GET | 获取用户信息 |
-| `/api/users/renew` | POST | 用户续期 |
-| `/api/users/delete` | POST | 删除用户 |
-| `/api/users/claim-card` | POST | 领取卡密（防刷） |
-| `/api/cards` | GET | 获取用户卡列表 |
+| `/api/users/me` | GET | 获取当前用户信息 |
+| `/api/users/renew` | POST | 使用时间卡续期或额度卡提升上限 |
+| `/api/users/change-password` | POST | 修改登录密码 |
+| `/api/users/claim-card` | POST | 领取空闲时间卡（按 UA 防刷） |
+| `/api/admin/cards` | GET/POST | 管理员卡密列表、生成、启用/禁用、删除 |
+| `/api/admin/users` | GET/POST/DELETE | 管理员用户列表、修改时限/上限、删除 |
 
 ### 一键部署（推荐，Rocky Linux 9.6 / Debian / Ubuntu）
+
 root 执行即可。Rocky 9 走 dnf，脚本会安装 Go 1.25 与 Node 22、2G 机自动加 1G swap、编译前后端、装到 `/opt/go-farm-bot`、注册 systemd、放行 3009。
 
 ```bash
@@ -54,11 +55,12 @@ git pull
 sudo bash install.sh
 ```
 
-更新完想确认线上跑的是哪一版，登录后在个人资料栏以年月日时分秒的方式标记版本更新时间
+更新完想确认线上跑的是哪一版，登录后在个人资料栏以年月日时分秒的方式标记版本更新时间。
 
-> 💡 `install.sh` 每次都会**自动重新构建前端**（检测并自动安装 Node → `npm ci` + `vite build`）后再编译后端，保证页面主题/样式始终完整。请勿删除或替换 `web/dist`，也不要手动放置旧版可执行文件——否则可能导致页面白屏、无任何 UI 样式。
+`install.sh` 每次都会**自动重新构建前端**（检测并自动安装 Node → `npm ci` + `vite build`）后再编译后端，保证页面主题/样式始终完整。请勿删除或替换 `web/dist`，也不要手动放置旧版可执行文件，否则可能导致页面白屏、无任何 UI 样式。
 
 ### Docker 部署（可选）
+
 仓库自带 `Dockerfile` + `docker-compose.yml`，适合没有 systemd 的环境（LXC 容器 / 群晖 / 其他主机），与 install.sh 互不影响：
 
 ```bash
@@ -78,17 +80,19 @@ docker run -d --name go-farm-bot -p 3009:3009 -e ADMIN_PORT=3009 \
 - 升级：`docker compose up -d --build` 重新构建即可；想换版本号先 `FARM_VERSION=<hash> docker compose build`
 - 时区无关：日志固定输出北京时间（UTC+8）
 
-## 📦 快速开始
+## 快速开始
 
 ### 编译
+
 ```bash
-# 注意：需先构建前端（web/dist），否则 embed 会失败
+# 需先构建前端（web/dist），否则 embed 会失败
 cd web && npm ci && npm run build && cd ..
 # Go 1.20+
 CGO_ENABLED=0 go build -o go-farm-bot .
 ```
 
 ### 运行
+
 ```bash
 ./go-farm-bot
 # 默认监听 :3009
@@ -98,28 +102,28 @@ CGO_ENABLED=0 go build -o go-farm-bot .
 
 1. 浏览器打开 `http://<服务器IP>:3009`
 2. **登录**：使用默认账号 `admin` / `admin` 登录
-3. **注册新用户**：在登录页面选择「注册」或访问 `/api/users/register` 注册新账号
-4. **获取卡密**：管理员可在 `users.json` 中添加卡密，用户可用卡密注册/续期
-5. **开启自动化**：登录后进入设置，添加微信账号后打开自动化开关
+3. **生成卡密**：管理员进入「更多 → 卡密管理」，生成时间卡（注册/续期）或额度卡（提升账号上限）
+4. **注册新用户**：登录页切换到注册，填写用户名、密码和时间卡密
+5. **添加农场账号**：进入「账号」页，用扫码、手动 code 或第三方登录绑定 QQ/微信农场号，再打开自动化开关
 
-> **⚠️ 安全提示**：首次登录后请尽快修改默认密码！
+> **安全提示**：首次登录后请尽快修改默认密码。
 > - 默认管理员账号：`admin` / `admin`（首次启动自动创建）
-> - 登录后进入「设置」页面修改密码
-> - 或直接编辑 `users.json` 中的 password 字段
+> - 登录后进入「更多 → 后台」修改密码
 
 ### 多用户系统
 
 | 角色 | 说明 |
 |------|------|
 | `admin` | 拥有全部权限，默认账号 `admin/admin` |
-| `user` | 受卡密时长限制，无卡密则无法使用 |
+| `user` | 受卡密时长和账号上限限制，注册必须使用时间卡 |
 
 登录方式：
+
 ```bash
-# 1. 注册新用户（使用卡密）
+# 1. 注册新用户（必须时间卡密）
 curl -X POST http://localhost:3009/api/users/register \
   -H "Content-Type: application/json" \
-  -d '{"username":"user1","password":"pass1234","cardCode":"XXXX-XXXX"}'
+  -d '{"username":"user1","password":"Pass1234","cardCode":"XXXX-XXXX"}'
 
 # 2. 登录获取 token
 curl -X POST http://localhost:3009/api/users/login \
@@ -132,6 +136,7 @@ curl http://localhost:3009/api/accounts \
 ```
 
 ### systemd 部署（推荐，裸机）
+
 ```ini
 # /etc/systemd/system/go-farm-bot.service
 [Unit]
@@ -147,15 +152,17 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 ```
+
 ```bash
 sudo systemctl enable --now go-farm-bot
 ```
 
+## 免责声明
 
-## ⚠️ 免责声明
 - 仅用于学习与个人自动化研究，请遵守游戏用户协议
 - 本项目完全免费
 
-## 📝 相关项目
-- 本项目为二改，原项目：https://github.com/Aoluis1005/QQ-farm-BOT-GO  —— 本项目的协议参考与功能对照
+## 相关项目
+
+- 本项目为二改，原项目：https://github.com/Aoluis1005/QQ-farm-BOT-GO —— 本项目的协议参考与功能对照
 - 当前仓库：https://github.com/wuyoukeji8888-stack/qq-farm-bot-go-wy

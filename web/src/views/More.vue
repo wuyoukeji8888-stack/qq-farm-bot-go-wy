@@ -1,13 +1,22 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import api from '@/api'
-import { getAccountId } from '@/api'
+import { getAccountId, getToken } from '@/api'
 import { useAppStore } from '@/stores/app'
+import { useAccountStore } from '@/stores/account'
 import { useRouter } from 'vue-router'
 
 const app = useAppStore()
+const accountStore = useAccountStore()
 const router = useRouter()
 const acc = () => getAccountId()
+const userToken = getToken()
+
+// 检查是否为管理员
+const isAdmin = computed(() => {
+  const role = accountStore.userInfo && accountStore.userInfo.role
+  return role === 'admin'
+})
 
 /* ================= 主 tab ================= */
 const active = ref('m-auto')     // m-auto / m-strategy / m-default / m-codex / m-analysis
@@ -589,6 +598,10 @@ onMounted(() => {
   loadSeeds()
   getSeedsCache()
   window.addEventListener('account-switched', onSwitched)
+  // 初始化时加载用户信息，确保 isAdmin 能够正确判断
+  if (accountStore.userLoggedIn) {
+    accountStore.loadUserInfo()
+  }
 })
 onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) })
 </script>
@@ -1185,6 +1198,22 @@ onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) }
       <button class="sub-item" @click="router.push('/backend')"><span class="mi">🖥️</span>后台<span class="arr">›</span></button>
       <button class="sub-item" @click="router.push('/sync')"><span class="mi">🔁</span>同步管理<span class="arr">›</span></button>
     </div>
+
+    <!-- 管理员专区 -->
+    <template v-if="isAdmin">
+      <div class="menu-title">管理员</div>
+      <div class="menu">
+        <button class="sub-item" @click="router.push('/admin/cards')"><span class="mi">🔑</span>卡密管理<span class="arr">›</span></button>
+        <button class="sub-item" @click="router.push('/admin/users')"><span class="mi">👥</span>用户管理<span class="arr">›</span></button>
+      </div>
+    </template>
+    <template v-else>
+      <div class="menu-title">管理员</div>
+      <div class="menu">
+        <button class="sub-item" style="opacity:0.5" @click="app.warning('请联系管理员操作')"><span class="mi">🔑</span>卡密管理<span class="arr">›</span></button>
+        <button class="sub-item" style="opacity:0.5" @click="app.warning('请联系管理员操作')"><span class="mi">👥</span>用户管理<span class="arr">›</span></button>
+      </div>
+    </template>
     <p style="margin-top:20px;text-align:center;font-size:11.5px;color:var(--muted-2)">qq farm bot go v1.0.1</p>
   </div>
 </template>

@@ -16,6 +16,9 @@ const routes = [
   { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue') },
   { path: '/backend', name: 'backend', component: () => import('@/views/Backend.vue') },
   { path: '/sync', name: 'sync', component: () => import('@/views/Sync.vue') },
+  // 管理员页面
+  { path: '/admin/cards', name: 'admin-cards', component: () => import('@/views/admin/Cards.vue') },
+  { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/Users.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
