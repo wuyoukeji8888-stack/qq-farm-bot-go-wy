@@ -171,6 +171,16 @@ if [ -d /data ] && [ -w /data ]; then
   echo "  运行数据目录: $DATA_HOME/.qq-farm-bot"
 fi
 
+# ---- 0.5 同步仓库到最新 master ----
+if [ -d "$SRC/.git" ]; then
+  echo "[0.5/6] 拉取仓库最新代码..."
+  cd "$SRC"
+  git fetch origin || true
+  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo master)"
+  git reset --hard "origin/${BRANCH}" || true
+  echo "  当前版本: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+fi
+
 # ---- 1. 构建前端 ----
 echo "[1/6] 构建前端..."
 cd "$SRC/web"
