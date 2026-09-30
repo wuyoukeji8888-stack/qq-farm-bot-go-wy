@@ -19,6 +19,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    allowedHosts: ['.monkeycode-ai.online'],
     proxy: {
       // 本地开发时把 /api 与 /game-config 代理到部署服务器，便于直连 Go 后端调试
       '/api': {

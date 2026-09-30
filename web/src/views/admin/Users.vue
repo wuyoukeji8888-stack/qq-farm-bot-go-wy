@@ -50,6 +50,8 @@ async function deleteUsers(list) {
 }
 
 function toggleSelect(username) {
+  const user = users.value.find(u => u.username === username)
+  if (user && user.role === 'admin') return
   const i = selected.value.indexOf(username)
   if (i >= 0) {
     selected.value.splice(i, 1)
@@ -59,10 +61,11 @@ function toggleSelect(username) {
 }
 
 function selectAll() {
-  if (selected.value.length === users.value.length) {
+  const names = users.value.filter(u => u.role !== 'admin').map(u => u.username)
+  if (selected.value.length === names.length) {
     selected.value = []
   } else {
-    selected.value = users.value.map(u => u.username)
+    selected.value = names
   }
 }
 
@@ -84,7 +87,7 @@ function remainingDays(user) {
 function startEdit(user) {
   editing.value = user.username
   editUnlimited.value = user.accountLimit === -1
-  editLimit.value = editUnlimited.value ? -1 : (user.accountLimit || 2)
+  editLimit.value = user.accountLimit === -1 ? 2 : (user.accountLimit || 2)
   editPermanent.value = !!user.isPermanent
   const days = remainingDays(user)
   editDays.value = days > 0 ? days : 30
@@ -150,7 +153,7 @@ onMounted(loadUsers)
       <div v-else style="display:flex;flex-direction:column;gap:8px;">
         <div v-for="user in users" :key="user.username" style="padding:12px;border-radius:10px;background:var(--card-strong);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:8px;">
-            <input type="checkbox" :checked="selected.includes(user.username)" @change="toggleSelect(user.username)">
+            <input type="checkbox" :checked="selected.includes(user.username)" :disabled="user.role === 'admin'" @change="toggleSelect(user.username)">
             <div style="flex:1;min-width:0;">
               <div style="font-weight:600;">{{ user.username }}</div>
               <div style="font-size:12px;color:var(--muted);margin-top:4px;">
@@ -171,9 +174,6 @@ onMounted(loadUsers)
                     <input type="checkbox" v-model="editPermanent"> 永久时长
                   </label>
                 </div>
-                <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
-                  <input type="checkbox" v-model="editPermanent"> 永久时长
-                </label>
                 <input v-model="editPassword" type="password" class="field" placeholder="新密码（留空不修改）" style="margin-top:4px">
                 <div style="font-size:11px;color:var(--muted);">密码至少 6 位</div>
                 <div style="display:flex;gap:8px;">

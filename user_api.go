@@ -32,7 +32,17 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		users := models.GetAllUsers()
-		writeJSON(w, map[string]interface{}{"ok": true, "data": users})
+		var result []map[string]interface{}
+		for _, u := range users {
+			result = append(result, map[string]interface{}{
+				"username":     u.Username,
+				"role":         u.Role,
+				"cardCode":     u.CardCode,
+				"accountLimit": models.EffectiveAccountLimit(&u),
+				"createdAt":    u.CreatedAt,
+			})
+		}
+		writeJSON(w, map[string]interface{}{"ok": true, "data": result})
 	case http.MethodPost:
 		var body struct {
 			Username string `json:"username"`
@@ -213,6 +223,9 @@ func handleUserRenew(w http.ResponseWriter, r *http.Request) {
 
 // handleUserDelete: 删除用户
 func handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	if !requireAdminUser(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return

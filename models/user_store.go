@@ -272,21 +272,6 @@ func validatePasswordStrength(password string) []string {
 	}
 	return errors
 }
-	if len(password) > 128 {
-		errors = append(errors, "密码长度不能超过128位")
-	}
-	return errors
-}
-	if len(password) > 128 {
-		errors = append(errors, "密码长度不能超过128位")
-	}
-	return errors
-}
-	if len(password) > 128 {
-		errors = append(errors, "密码长度不能超过128位")
-	}
-	return errors
-}
 
 func generateCardCode() string {
 	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -729,6 +714,9 @@ func ClaimCardByUA(ua, username string) CardClaimResult {
 func DeleteUser(username string) error {
 	for i, u := range users {
 		if u.Username == username {
+			if u.Role == "admin" || u.Role == "super_admin" {
+				return errors.New("不能删除管理员账号")
+			}
 			users = append(users[:i], users[i+1:]...)
 			saveUsers()
 			return nil

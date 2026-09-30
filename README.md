@@ -33,7 +33,7 @@
 | `/api/users/change-password` | POST | 修改登录密码 |
 | `/api/users/claim-card` | POST | 领取空闲时间卡（按 UA 防刷） |
 | `/api/admin/cards` | GET/POST | 管理员卡密列表、生成、启用/禁用、删除 |
-| `/api/admin/users` | GET/POST/DELETE | 管理员用户列表、修改时限/上限、删除 |
+| `/api/admin/users` | GET/POST/DELETE | 管理员用户列表、修改时限/上限、重置密码、删除 |
 
 ### 一键部署（推荐，Rocky Linux 9.6 / Debian / Ubuntu）
 
