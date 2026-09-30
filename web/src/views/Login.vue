@@ -76,7 +76,7 @@ async function onSubmit() {
       }
     }
   } catch (e) {
-    // 错误已处理
+    app.error(e.response?.data?.error || '登录失败，请检查用户名或密码')
   } finally {
     loading.value = false
   }

@@ -9,11 +9,12 @@ const router = useRouter()
 
 const users = ref([])
 const loading = ref(false)
-const selected = ref(new Set())
+const selected = ref([])
 const editing = ref(null)
 const editLimit = ref(2)
 const editDays = ref(30)
 const editPermanent = ref(false)
+const editUnlimited = ref(false)
 const editPassword = ref('')
 const saving = ref(false)
 
@@ -29,18 +30,19 @@ async function loadUsers() {
   }
 }
 
-async function deleteUsers() {
-  if (selected.value.size === 0) {
+async function deleteUsers(list) {
+  const names = Array.isArray(list) ? list : selected.value
+  if (names.length === 0) {
     app.error('请先选择用户')
     return
   }
-  if (!confirm(`确定删除选中的 ${selected.value.size} 个用户？`)) return
+  if (!confirm(`确定删除选中的 ${names.length} 个用户？`)) return
   try {
     await api.delete('/api/admin/users', {
-      data: { usernames: Array.from(selected.value) }
+      data: { usernames: names }
     })
     app.success('删除成功')
-    selected.value.clear()
+    selected.value = []
     await loadUsers()
   } catch (e) {
     app.error(e.response?.data?.error || '删除失败')
@@ -48,18 +50,19 @@ async function deleteUsers() {
 }
 
 function toggleSelect(username) {
-  if (selected.value.has(username)) {
-    selected.value.delete(username)
+  const i = selected.value.indexOf(username)
+  if (i >= 0) {
+    selected.value.splice(i, 1)
   } else {
-    selected.value.add(username)
+    selected.value.push(username)
   }
 }
 
 function selectAll() {
-  if (selected.value.size === users.value.length) {
-    selected.value.clear()
+  if (selected.value.length === users.value.length) {
+    selected.value = []
   } else {
-    users.value.forEach(u => selected.value.add(u.username))
+    selected.value = users.value.map(u => u.username)
   }
 }
 
@@ -80,7 +83,8 @@ function remainingDays(user) {
 
 function startEdit(user) {
   editing.value = user.username
-  editLimit.value = user.accountLimit === -1 ? -1 : (user.accountLimit || 2)
+  editUnlimited.value = user.accountLimit === -1
+  editLimit.value = user.accountLimit === -1 ? 2 : (user.accountLimit || 2)
   editPermanent.value = !!user.isPermanent
   const days = remainingDays(user)
   editDays.value = days > 0 ? days : 30
@@ -96,7 +100,7 @@ async function saveEdit(username) {
   try {
     const payload = {
       username,
-      accountLimit: Number(editLimit.value)
+      accountLimit: editUnlimited.value ? -1 : Number(editLimit.value)
     }
     if (editPermanent.value) {
       payload.permanent = true
@@ -136,7 +140,7 @@ onMounted(loadUsers)
       </div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
         <button style="padding:8px 12px;border-radius:8px;background:var(--card-strong);border:1px solid var(--border);cursor:pointer;font-size:13px;" @click="selectAll">全选</button>
-        <button style="padding:8px 12px;border-radius:8px;background:#ef4444;color:#fff;border:none;cursor:pointer;font-size:13px;" @click="deleteUsers">删除</button>
+        <button style="padding:8px 12px;border-radius:8px;background:#ef4444;color:#fff;border:none;cursor:pointer;font-size:13px;" @click="deleteUsers()">删除</button>
         <button style="padding:8px 12px;border-radius:8px;background:var(--card-strong);border:1px solid var(--border);cursor:pointer;font-size:13px;" @click="loadUsers">刷新</button>
       </div>
 
@@ -145,7 +149,7 @@ onMounted(loadUsers)
       <div v-else style="display:flex;flex-direction:column;gap:8px;">
         <div v-for="user in users" :key="user.username" style="padding:12px;border-radius:10px;background:var(--card-strong);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:8px;">
-            <input type="checkbox" :checked="selected.has(user.username)" @change="toggleSelect(user.username)">
+            <input type="checkbox" :checked="selected.includes(user.username)" @change="toggleSelect(user.username)">
             <div style="flex:1;min-width:0;">
               <div style="font-weight:600;">{{ user.username }}</div>
               <div style="font-size:12px;color:var(--muted);margin-top:4px;">
@@ -155,21 +159,27 @@ onMounted(loadUsers)
               </div>
               <div v-if="editing === user.username && user.role !== 'admin'" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
                 <div style="display:flex;gap:8px;">
-                  <input v-model.number="editLimit" type="number" class="field" placeholder="账号上限(-1无限)" style="flex:1">
+                  <input v-model.number="editLimit" type="number" class="field" :disabled="editUnlimited" placeholder="账号上限" style="flex:1">
                   <input v-if="!editPermanent" v-model.number="editDays" type="number" class="field" placeholder="剩余天数" style="flex:1">
                 </div>
+                <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
+                  <input type="checkbox" v-model="editUnlimited"> 无限账号
+                </label>
                 <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
                   <input type="checkbox" v-model="editPermanent"> 永久时长
                 </label>
                 <input v-model="editPassword" type="password" class="field" placeholder="新密码（留空不修改）" style="margin-top:4px">
-                <div style="font-size:11px;color:var(--muted);">密码需至少 8 位，并包含大小写字母、数字或符号</div>
+                <div style="font-size:11px;color:var(--muted);">密码至少 6 位</div>
                 <div style="display:flex;gap:8px;">
                   <button :disabled="saving" style="flex:1;padding:8px;border-radius:8px;background:var(--primary,#3b82f6);color:#fff;border:none;cursor:pointer;" @click="saveEdit(user.username)">{{ saving ? '保存中...' : '保存' }}</button>
                   <button style="flex:1;padding:8px;border-radius:8px;background:var(--card-strong);border:1px solid var(--border);cursor:pointer;" @click="cancelEdit">取消</button>
                 </div>
               </div>
             </div>
-            <button v-if="user.role !== 'admin' && editing !== user.username" style="padding:4px 8px;border-radius:6px;background:transparent;border:1px solid var(--border);cursor:pointer;font-size:12px;" @click="startEdit(user)">编辑</button>
+            <div v-if="user.role !== 'admin' && editing !== user.username" style="display:flex;gap:6px;">
+              <button style="padding:4px 8px;border-radius:6px;background:transparent;border:1px solid var(--border);cursor:pointer;font-size:12px;" @click="startEdit(user)">编辑</button>
+              <button style="padding:4px 8px;border-radius:6px;background:#ef4444;color:#fff;border:none;cursor:pointer;font-size:12px;" @click="deleteUsers([user.username])">删除</button>
+            </div>
           </div>
         </div>
       </div>

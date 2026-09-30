@@ -270,32 +270,6 @@ func validatePasswordStrength(password string) []string {
 	if len(password) > 128 {
 		errors = append(errors, "密码长度不能超过128位")
 	}
-	var complexity int
-	if regexp.MustCompile(`[a-z]`).MatchString(password) {
-		complexity++
-	}
-	if regexp.MustCompile(`[A-Z]`).MatchString(password) {
-		complexity++
-	}
-	if regexp.MustCompile(`\d`).MatchString(password) {
-		complexity++
-	}
-	// 特殊符号：使用双引号字符串而非原始字符串，避免反引号导致的语法错误
-	// 覆盖常用特殊符号：!@#$%^&*()_+-=[]{}|;':",./<>?~\`
-	if regexp.MustCompile("[!@#$%^&*()_+=\\[\\]{}|;':\",./<>?~`]").MatchString(password) {
-		complexity++
-	}
-	if complexity < 2 {
-		errors = append(errors, "密码必须包含大写字母、小写字母、数字、特殊符号中的至少两种")
-	}
-	weakPasswords := []string{"password", "123456", "qwerty", "abc123", "111111", "000000"}
-	lower := strings.ToLower(password)
-	for _, wp := range weakPasswords {
-		if lower == wp {
-			errors = append(errors, "密码过于简单，请使用更复杂的密码")
-			break
-		}
-	}
 	return errors
 }
 
