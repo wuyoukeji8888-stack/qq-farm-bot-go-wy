@@ -15,7 +15,7 @@ const genDays = ref(30)
 const genType = ref('time')
 const genValue = ref(1)
 const genDesc = ref('')
-const selected = ref(new Set())
+const selected = ref([])
 
 async function loadCards() {
   loading.value = true
@@ -71,18 +71,18 @@ async function generate() {
 }
 
 async function toggleCards(enabled) {
-  if (selected.value.size === 0) {
+  if (selected.value.length === 0) {
     app.error('请先选择卡密')
     return
   }
   try {
     await api.post('/api/admin/cards', {
       action: 'toggle',
-      codes: Array.from(selected.value),
+      codes: selected.value,
       enabled
     })
     app.success(enabled ? '已启用' : '已禁用')
-    selected.value.clear()
+    selected.value = []
     await loadCards()
   } catch (e) {
     app.error(e.response?.data?.error || '操作失败')
@@ -90,18 +90,23 @@ async function toggleCards(enabled) {
 }
 
 async function deleteCards() {
-  if (selected.value.size === 0) {
+  if (selected.value.length === 0) {
     app.error('请先选择卡密')
     return
   }
-  if (!confirm(`确定删除选中的 ${selected.value.size} 个卡密？`)) return
+  if (!confirm(`确定删除选中的 ${selected.value.length} 个卡密？`)) return
   try {
-    await api.post('/api/admin/cards', {
+    const { data } = await api.post('/api/admin/cards', {
       action: 'delete',
-      codes: Array.from(selected.value)
+      codes: selected.value
     })
-    app.success('删除成功')
-    selected.value.clear()
+    const n = data.deleted
+    if (n > 0) {
+      app.success(`已删除 ${n} 个卡密`)
+    } else {
+      app.error('未删除任何卡密，请重新勾选后再试')
+    }
+    selected.value = []
     await loadCards()
   } catch (e) {
     app.error(e.response?.data?.error || '删除失败')
@@ -109,18 +114,19 @@ async function deleteCards() {
 }
 
 function toggleSelect(code) {
-  if (selected.value.has(code)) {
-    selected.value.delete(code)
+  const i = selected.value.indexOf(code)
+  if (i >= 0) {
+    selected.value.splice(i, 1)
   } else {
-    selected.value.add(code)
+    selected.value.push(code)
   }
 }
 
 function selectAll() {
-  if (selected.value.size === cards.value.length) {
-    selected.value.clear()
+  if (selected.value.length === cards.value.length) {
+    selected.value = []
   } else {
-    cards.value.forEach(c => selected.value.add(c.code))
+    selected.value = cards.value.map(c => c.code)
   }
 }
 
@@ -200,7 +206,7 @@ onMounted(loadCards)
       <div v-else style="display:flex;flex-direction:column;gap:8px;">
         <div v-for="card in cards" :key="card.code" style="padding:12px;border-radius:10px;background:var(--card-strong);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:8px;">
-            <input type="checkbox" :checked="selected.has(card.code)" @change="toggleSelect(card.code)">
+            <input type="checkbox" :checked="selected.includes(card.code)" @change="toggleSelect(card.code)">
             <div style="flex:1;min-width:0;">
               <div style="font-family:monospace;font-size:13px;word-break:break-all;">{{ card.code }}</div>
               <div style="font-size:12px;color:var(--muted);margin-top:4px;">

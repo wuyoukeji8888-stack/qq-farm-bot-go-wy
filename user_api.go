@@ -418,8 +418,8 @@ func handleAdminCards(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "请指定卡密")
 				return
 			}
-			models.DeleteCards(body.Codes)
-			writeJSON(w, map[string]interface{}{"ok": true})
+			n := models.DeleteCards(body.Codes)
+			writeJSON(w, map[string]interface{}{"ok": true, "deleted": n})
 		default:
 			writeError(w, http.StatusBadRequest, "未知操作")
 		}
@@ -431,8 +431,8 @@ func handleAdminCards(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "参数错误")
 			return
 		}
-		models.DeleteCards(body.Codes)
-		writeJSON(w, map[string]interface{}{"ok": true})
+		n := models.DeleteCards(body.Codes)
+		writeJSON(w, map[string]interface{}{"ok": true, "deleted": n})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}

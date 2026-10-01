@@ -836,7 +836,15 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 			appendOpLog(accountID, "farm", "2x2 背包种子: "+strings.Join(names, "、"))
 		}
 		tryPlant2x2 := func(ids []int64) bool {
-			for _, s := range usable {
+			if len(ids) == 0 {
+				return false
+			}
+			master := []int64{ids[0]}
+			for i := range usable {
+				s := &usable[i]
+				if s.count <= 0 {
+					continue
+				}
 				retryKey := fmt.Sprintf("2x2:%v:%d", ids, s.seedID)
 				failed2x2RetriesMu.Lock()
 				if retryUntil, hasRetry := failed2x2Retries[retryKey]; hasRetry && time.Now().Unix() < retryUntil {
@@ -846,19 +854,24 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 				failed2x2RetriesMu.Unlock()
 				realSeed, e2 := ensureSeedOwned(c, s.seedID, 0, 0, 1)
 				if e2 != nil || realSeed <= 0 {
+					appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种子未就绪 seed=%d: %v", s.seedID, e2))
 					continue
 				}
-				if plantErr := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, ids)); plantErr == nil {
+				plantErr := execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, master))
+				if plantErr != nil && len(ids) > 1 {
+					plantErr = execFarmOp(c, "Plant", proto.EncodePlantRequest(realSeed, ids))
+				}
+				if plantErr == nil {
+					s.count--
 					recordOperation(accountID, "plant", int64(len(ids)))
 					appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种植%s → 地块%v", seedPlantName(realSeed), ids))
 					time.Sleep(plantDelay(cfg) + 200*time.Millisecond)
 					return true
-				} else {
-					failed2x2RetriesMu.Lock()
-					failed2x2Retries[retryKey] = time.Now().Unix() + 600
-					failed2x2RetriesMu.Unlock()
-					appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种植失败 seed=%d lands=%v: %v", realSeed, ids, plantErr))
 				}
+				failed2x2RetriesMu.Lock()
+				failed2x2Retries[retryKey] = time.Now().Unix() + 90
+				failed2x2RetriesMu.Unlock()
+				appendOpLog(accountID, "farm", fmt.Sprintf("2x2 种植失败 seed=%d lands=%v: %v", realSeed, ids, plantErr))
 			}
 			return false
 		}
@@ -882,8 +895,10 @@ func autoPlantLands(accountID string, c *gw.Client, cfg config.AccountConfig, la
 					reserved2x2Mu.Unlock()
 					continue
 				}
+				remainUnits = append(remainUnits, u)
+				continue
 			}
-			if len(usable) == 0 {
+			if len(usable) == 0 || allEmpty {
 				remainUnits = append(remainUnits, u)
 				continue
 			}

@@ -1072,19 +1072,30 @@ func ToggleCards(codes []string, enabled bool) {
 	saveCards()
 }
 
-// DeleteCards 批量删除卡密（仅删除未使用的）
-func DeleteCards(codes []string) {
+// DeleteCards 按卡密代码删除，已使用的也可删。返回实际删除数量。
+func DeleteCards(codes []string) int {
 	userStoreMu.Lock()
 	defer userStoreMu.Unlock()
-	
+
+	want := map[string]bool{}
 	for _, code := range codes {
-		for i := range cards {
-			if cards[i].Code == code && cards[i].UsedBy == "" {
-				cards = append(cards[:i], cards[i+1:]...)
-				break
-			}
+		if code != "" {
+			want[code] = true
 		}
 	}
-	
+	if len(want) == 0 {
+		return 0
+	}
+	kept := cards[:0]
+	deleted := 0
+	for _, c := range cards {
+		if want[c.Code] {
+			deleted++
+			continue
+		}
+		kept = append(kept, c)
+	}
+	cards = kept
 	saveCards()
+	return deleted
 }
