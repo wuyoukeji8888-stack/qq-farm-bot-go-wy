@@ -9,10 +9,17 @@ package main
 
 // getAllPlants 返回所有植物条目（）。
 // plantByIDMap 按 plant.id 存储，遍历即可。
+// 另外包含 seedToPlantMap 中但不在 plantByIDMap 的种子（Plant.json 缺失的）。
 func getAllPlants() []plantEntry {
-	out := make([]plantEntry, 0, len(plantByIDMap))
+	out := make([]plantEntry, 0, len(plantByIDMap)+len(seedToPlantMap))
 	for _, p := range plantByIDMap {
 		out = append(out, p)
+	}
+	// 补充 seedToPlantMap 中缺失的种子（Plant.json 中没有对应植物ID的条目）
+	for _, p := range seedToPlantMap {
+		if _, exists := plantByIDMap[p.ID]; !exists {
+			out = append(out, p)
+		}
 	}
 	return out
 }
