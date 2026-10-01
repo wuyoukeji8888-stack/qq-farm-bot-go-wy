@@ -71,13 +71,13 @@ var extraItemNames = map[int]string{
 	1040:  "爱心值",   // 公益小红花：收获小红花果实获得；捐赠后从背包扣除（抓包 ItemNotify 1040 -7 实锤）
 }
 
-// itemNameAliases 覆盖官方配置展示名（月光花客户端俗称月下美人）。
+// itemNameAliases 覆盖官方配置展示名（月光花客户端俗称山丹丹/月下美人）。
 var itemNameAliases = map[int]string{
-	21404:   "月下美人种子",
-	41404:   "月下美人",
-	1021404: "月下美人",
-	1121404: "黄金·月下美人",
-	1041404: "黄金·月下美人",
+	21404:   "山丹丹种子", // 月下美人/月光花的玩家昵称
+	41404:   "山丹丹",
+	1021404: "山丹丹",
+	1121404: "黄金·山丹丹",
+	1041404: "黄金·山丹丹",
 }
 
 // assetNameAliases 覆盖 Plant.json ItemInfo.json 缺失的 asset_name。

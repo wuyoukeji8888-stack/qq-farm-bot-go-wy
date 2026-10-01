@@ -124,10 +124,14 @@ func buildSeedGoods(g proto.GoodsInfo, userLevel int64) (map[string]interface{},
 	if assetName == "" {
 		assetName = fmt.Sprintf("Crop_%d", itemID-20000)
 	}
-	name := itemConfig.Name
-	// 展示名优先 effectDesc
-	if itemConfig.EffectDesc != "" {
+	// 展示名：优先 itemNameAliases → effectDesc → itemConfig.Name
+	name := ""
+	if n, ok := itemNameAliases[itemID]; ok {
+		name = n
+	} else if itemConfig.EffectDesc != "" {
 		name = itemConfig.EffectDesc
+	} else {
+		name = itemConfig.Name
 	}
 	if name == "" {
 		name = "种子" + strconv.Itoa(itemID)
