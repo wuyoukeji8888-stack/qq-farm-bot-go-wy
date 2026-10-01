@@ -80,6 +80,13 @@ var itemNameAliases = map[int]string{
 	1041404: "黄金·月下美人",
 }
 
+// assetNameAliases 覆盖 Plant.json ItemInfo.json 缺失的 asset_name。
+// 用于通过种子ID找不到图片时，用作 assetName → seedAssetImageMap 回退。
+var assetNameAliases = map[int]string{
+	21404: "Crop_1404", // 山丹丹/月下美人种子
+	41404: "Crop_1404", // 月下美人果实使用同一图片
+}
+
 // initGameConfig 从 gameConfigDir 加载 Plant.json / ItemInfo.json。
 // 成功加载后调用方可用 IsFruitItemID / IsSeedItemID / itemName 做精确分类。
 func initGameConfig(gameConfigDir string) {

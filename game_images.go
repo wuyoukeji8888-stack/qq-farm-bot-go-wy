@@ -90,12 +90,19 @@ func scanImageDir(dir, urlPrefix string) {
 }
 
 // tryGetImage 先按 id 查 itemImageMap，未命中再从 ItemInfo.asset_name → seedAssetImageMap 回退。
+// 若仍未命中，尝试通过 assetNameAliases 找到同源图片。
 func tryGetImage(id int) string {
 	if u, ok := itemImageMap[id]; ok && u != "" {
 		return u
 	}
 	if it, ok := itemInfoMap[id]; ok && it.AssetName != "" {
 		if u, ok2 := seedAssetImageMap[it.AssetName]; ok2 {
+			return u
+		}
+	}
+	// 通过 assetNameAliases 回退：同一作物的所有变体共用一张图片
+	if assetName, ok := assetNameAliases[id]; ok {
+		if u, ok2 := seedAssetImageMap[assetName]; ok2 {
 			return u
 		}
 	}
