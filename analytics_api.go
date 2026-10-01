@@ -169,7 +169,7 @@ func getPlantRankings(sortBy string) []map[string]interface{} {
 		rankings = append(rankings, map[string]interface{}{
 			"id":                               plant.ID,
 			"seedId":                           plant.SeedID,
-			"name":                             plant.Name,
+			"name":                             itemNameAliases[plant.SeedID], // 优先使用别名显示
 			"seasons":                          seasons,
 			"level":                            levelOrNull,
 			"growTime":                         effectiveGrowTime,
