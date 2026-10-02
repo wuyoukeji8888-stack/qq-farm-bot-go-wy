@@ -40,7 +40,8 @@ func accountOwner(accountID string) string {
 }
 
 // isAccountAccessible checks whether user u can access accountID.
-// admin/super_admin can access any account; regular users can only access their own.
+// admin/super_admin can access any account; regular users can access their own accounts
+// or unbound accounts (Username == "") to allow claiming.
 func isAccountAccessible(u *models.User, accountID string) bool {
 	if u == nil {
 		return false
@@ -49,7 +50,9 @@ func isAccountAccessible(u *models.User, accountID string) bool {
 		return true
 	}
 	owner := accountOwner(accountID)
-	return owner == u.Username
+	// Allow access if account is owned by user, or if account is unbound (Username == "")
+	// Unbound accounts can be claimed by any authenticated user
+	return owner == u.Username || owner == ""
 }
 
 // ---- 账号管理 ----
@@ -179,8 +182,19 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 func handleActiveAccount(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
+		// 解析当前活跃账号，考虑用户归属
+		accountID := models.GetActiveAccountID()
+		if accountID == "" {
+			// 无活跃账号时，返回用户自己的第一个账号
+			if u := currentUser(r); u != nil {
+				accs := models.GetAccountsByUsername(u.Username)
+				if len(accs) > 0 {
+					accountID = accs[0].ID
+				}
+			}
+		}
 		writeJSON(w, map[string]interface{}{"ok": true, "data": map[string]interface{}{
-			"accountId": models.GetActiveAccountID(),
+			"accountId": accountID,
 		}})
 	case "POST":
 		var body struct {

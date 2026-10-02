@@ -109,7 +109,7 @@ func handleHomeIncome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accountID := r.URL.Query().Get("accountId")
-	accountID = resolveAccountID(accountID)
+	accountID = resolveAccountIDWithOwner(r, accountID)
 	if accountID == "" {
 		// Default to user's own first account, not first in global list
 		accs := models.GetAccountsByUsername(u.Username)
@@ -147,6 +147,7 @@ func handleHomePatrol(w http.ResponseWriter, r *http.Request) {
 	if accountID == "" {
 		accountID = "default"
 	}
+	accountID = resolveAccountIDWithOwner(r, accountID)
 	// Verify account access
 	if !isAccountAccessible(u, accountID) {
 		writeError(w, 403, "无权访问该账号")

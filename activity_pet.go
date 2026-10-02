@@ -330,7 +330,7 @@ func handleActivityPetOperate(w http.ResponseWriter, r *http.Request) {
 		writeJSONMap(w, "ok", false, "error", "参数解析失败")
 		return
 	}
-	accountID := resolveAccountID(req.AccountID)
+	accountID := resolveAccountIDWithOwner(r, req.AccountID)
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return

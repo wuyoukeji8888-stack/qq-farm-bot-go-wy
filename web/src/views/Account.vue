@@ -129,6 +129,8 @@ async function startQrLogin() {
       // 把扫码弹窗里的重连配置应用到新账号（默认开启/3分钟/3次，用户可在弹窗内先改）
       const newId = add.activeAccountId || (Array.isArray(add.data) && add.data.length && add.data[add.data.length - 1].id)
       if (newId) {
+        // 将新账号设为当前选中账号，供首页/活动中心等使用
+        setAccountId(newId)
         try {
           await api.post(`/api/reconnect/config?accountId=${encodeURIComponent(newId)}`, {
             enabled: rcfg.enabled,

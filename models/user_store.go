@@ -363,7 +363,7 @@ func recordFailedAttempt(username string) (locked bool, message string) {
 			attempt.LockedUntil = now + int64(lockoutDuration.Milliseconds())
 			loginAttempts[key] = attempt
 			saveLoginAttempts()
-			return true, fmt.Sprintf("登录失败次数过多，账户已被锁定 %d 分钟", lockoutDuration.Minutes())
+			return true, fmt.Sprintf("登录失败次数过多，账户已被锁定 %.0f 分钟", lockoutDuration.Minutes())
 		}
 		loginAttempts[key] = attempt
 		saveLoginAttempts()
