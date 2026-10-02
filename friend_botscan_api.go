@@ -534,7 +534,7 @@ func registerFriendBotScanAPI(mux *http.ServeMux) {
 }
 
 func handleFriendBotScan(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())

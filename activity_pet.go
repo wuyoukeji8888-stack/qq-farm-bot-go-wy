@@ -297,7 +297,7 @@ func petClaimStory(ctx context.Context, accountID string, order int64) error {
 
 // GET /api/activity/pet?accountId=X —— 比熊之家 + 爪印手记状态
 func handleActivityPet(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return

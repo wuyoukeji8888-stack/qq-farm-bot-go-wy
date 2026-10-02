@@ -39,7 +39,7 @@ func handleFetchFriendsDogInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -120,7 +120,7 @@ func handleFriendDogRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid gid")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	d, ok := getFriendDog(accountID, gid)
 	if !ok {
 		writeJSON(w, map[string]interface{}{"ok": true, "data": nil})
@@ -145,7 +145,7 @@ func handleFriendKnownGidsRoot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if err := models.SetKnownFriendGids(accountID, req.KnownFriendGids); err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -172,7 +172,7 @@ func handleFriendKnownGidsRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "missing/invalid gid")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	cur := models.GetAccountConfig(accountID).KnownFriendGIDs
 	next := make([]int64, 0, len(cur))
 	for _, g := range cur {
@@ -201,7 +201,7 @@ func handleFriendKnownGidsBatchAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	cur := models.GetAccountConfig(accountID).KnownFriendGIDs
 	set := map[int64]bool{}
 	for _, g := range cur {
@@ -239,7 +239,7 @@ func handleFriendKnownGidsBatchRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	rm := map[int64]bool{}
 	for _, g := range req.Gids {
 		if g > 0 {
@@ -280,7 +280,7 @@ func handleFriendBatchDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "登录密码错误")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, cerr := clientPool.Get(accountID)
 	if cerr != nil {
 		writeError(w, 400, "网关未连接: "+cerr.Error())
@@ -311,7 +311,7 @@ func handleFriendBatchDelete(w http.ResponseWriter, r *http.Request) {
 func handleFriendKnownGids(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+		accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 		gids := models.GetAccountConfig(accountID).KnownFriendGIDs
 		writeJSON(w, map[string]interface{}{"ok": true, "data": map[string]interface{}{
 			"knownFriendGids": gids,

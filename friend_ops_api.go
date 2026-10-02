@@ -51,7 +51,7 @@ func handleFarmOperate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "missing opType")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -102,7 +102,7 @@ func handleLandFertilize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "missing landId")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -140,7 +140,7 @@ func handleLandRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "缺少土地ID")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -167,7 +167,7 @@ func handleLandRemoveAll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -241,7 +241,7 @@ func handleFriendBlacklistToggle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "missing/invalid gid")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeError(w, 400, "无可用账号")
 		return
@@ -294,7 +294,7 @@ func handleFriendBlacklistUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "missing/invalid gid")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeError(w, 400, "无可用账号")
 		return
@@ -323,7 +323,7 @@ func handleFriendRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	act := parts[1]
 
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, cerr := clientPool.Get(accountID)
 	if cerr != nil {
 		writeError(w, 400, "网关未连接: "+cerr.Error())
@@ -403,7 +403,7 @@ func handleFriendApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "shareKey 需为32位十六进制")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())

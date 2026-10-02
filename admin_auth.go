@@ -142,6 +142,29 @@ func userTokenFromRequest(r *http.Request) string {
 	return ""
 }
 
+// currentUser returns the authenticated user from request token, or nil if not authenticated
+func currentUser(r *http.Request) *models.User {
+	tok := userTokenFromRequest(r)
+	if tok == "" {
+		return nil
+	}
+	u := models.GetUserByToken(tok)
+	if u == nil || models.UserExpired(u) {
+		return nil
+	}
+	return u
+}
+
+// requireUserAuth checks if user is authenticated; returns user or writes error
+func requireUserAuth(w http.ResponseWriter, r *http.Request) (*models.User, bool) {
+	u := currentUser(r)
+	if u == nil {
+		writeError(w, 401, "unauthorized")
+		return nil, false
+	}
+	return u, true
+}
+
 // ---- Admin API 路由 ----
 
 func registerAdminAuthAPI(api *http.ServeMux) {

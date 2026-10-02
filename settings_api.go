@@ -35,12 +35,32 @@ func registerSettingsAPI(mux *http.ServeMux) {
 }
 
 // reqAccountID 解析请求中的账号 ID：query accountId 优先，其次 x-account-id header
+// 已包含用户归属验证：若用户已登录且指定了其他用户的账号，返回空字符串
 func reqAccountID(r *http.Request) string {
 	id := r.URL.Query().Get("accountId")
 	if id == "" {
 		id = r.Header.Get("x-account-id")
 	}
-	return resolveAccountID(id)
+	return resolveAccountIDWithOwner(r, id)
+}
+
+// requireAccountAuth checks user auth and account ownership; returns (accountID, user, ok)
+func requireAccountAuth(w http.ResponseWriter, r *http.Request) (string, *models.User, bool) {
+	u, ok := requireUserAuth(w, r)
+	if !ok {
+		return "", nil, false
+	}
+	accountID := reqAccountID(r)
+	if accountID == "" {
+		writeError(w, 400, "Missing x-account-id")
+		return "", nil, false
+	}
+	// Check if user can access this account
+	if !isAccountAccessible(u, accountID) {
+		writeError(w, 403, "无权访问该账号")
+		return "", nil, false
+	}
+	return accountID, u, true
 }
 
 // GET /api/settings  获取账号全量配置
@@ -49,9 +69,8 @@ func handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	cfg := models.GetAccountConfig(accountID)
@@ -97,9 +116,8 @@ func handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	cfg := models.GetAccountConfig(accountID) // 以现有为基底，只覆盖 body 中出现的字段
@@ -121,9 +139,8 @@ func handleAutomationSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	var aut config.AutomationConfig
@@ -175,9 +192,8 @@ func handleDefaultPlanImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	plan := models.GetUserDefaultPlan()
@@ -195,9 +211,8 @@ func handleDefaultPlanApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	cfg, err := models.ApplyUserDefaultPlan(accountID)

@@ -23,7 +23,7 @@ func handleDogGifts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return
@@ -48,7 +48,7 @@ func handleDogGiftsClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return

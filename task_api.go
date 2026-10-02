@@ -54,7 +54,7 @@ func handleTaskDaily(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return
@@ -149,7 +149,7 @@ func handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return
@@ -182,7 +182,7 @@ func handleTaskClaim(w http.ResponseWriter, r *http.Request) {
 // POST /api/task/daily-gifts/claim body: { type: "mall"|"share"|"email"|"monthcard"|"vip"|"all" }
 //   手动触发对应每日礼包领取
 func handleTaskDailyGifts(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return

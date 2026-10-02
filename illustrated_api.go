@@ -185,9 +185,8 @@ func handleIllustratedGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	c, err := clientPool.Get(accountID)
@@ -237,9 +236,8 @@ func handleIllustratedBuy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -273,9 +271,8 @@ func handleIllustratedBuyAll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	var body struct {

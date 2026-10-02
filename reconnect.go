@@ -242,7 +242,7 @@ func registerReconnectAPI(mux *http.ServeMux) {
 }
 
 func handleReconnectConfig(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		// 无账号时 GET 返回默认开启配置，便于前端初始化开关；写操作为避免误存仍报错
 		if r.Method == http.MethodGet {
@@ -312,7 +312,7 @@ func handleReconnectRetry(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeError(w, 400, "没有可用账号")
 		return

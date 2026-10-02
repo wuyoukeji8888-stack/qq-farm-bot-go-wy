@@ -18,7 +18,7 @@ func registerCareerAPI(mux *http.ServeMux) {
 }
 
 func handleCareer(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeError(w, 400, "没有可用的账号")
 		return

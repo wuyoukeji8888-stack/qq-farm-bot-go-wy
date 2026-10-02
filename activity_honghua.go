@@ -210,7 +210,7 @@ func honghuaAppendMsg(b []byte, field int, sub []byte) []byte {
 // ===== 状态：GET /api/activity/honghua =====
 // 返回活动配置（时间/档位/奖励）+ 公益金今日已捐标记 + 爱心值/公益金进度（best-effort）。
 func handleHonghuaStatus(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return
@@ -377,7 +377,7 @@ func hhProgFallback(accountID string) (donated, serverTotal, serverGoal int64, t
 
 // ===== 送出爱心值：POST /api/activity/honghua/love =====
 func handleHonghuaLove(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return
@@ -399,7 +399,7 @@ func handleHonghuaLove(w http.ResponseWriter, r *http.Request) {
 // ===== 送出公益金：POST /api/activity/honghua/fund =====
 // 单账号活动期仅 1 次资格 + 真实 1 元扣款，已捐防重（内存标记）。
 func handleHonghuaFund(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return
@@ -446,7 +446,7 @@ func handleHonghuaFund(w http.ResponseWriter, r *http.Request) {
 // 档位领取（kind=tier）：cmd=37 + 扩展 f136={f1=阈值}；领取前先拉 f116 校验档位状态——
 // 已领取（档位块 f3=1）直接返回「已领取」不发请求；爱心值未达标明确提示不发请求。
 func handleHonghuaClaim(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return

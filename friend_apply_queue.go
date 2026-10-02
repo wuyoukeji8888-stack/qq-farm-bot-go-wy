@@ -217,7 +217,7 @@ func handleFriendApplyBatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	q := getApplyQueue(accountID)
 	re := regexp.MustCompile(`^[0-9a-f]{32}$`)
 	accepted, skipped, invalid := 0, 0, 0
@@ -244,7 +244,7 @@ func handleFriendApplyStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	q := getApplyQueue(accountID)
 	writeJSON(w, map[string]interface{}{"ok": true, "items": q.snapshot()})
 }
@@ -262,7 +262,7 @@ func handleFriendApplyCancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	q := getApplyQueue(accountID)
 	n := q.cancel(req.GIDs)
 	writeJSON(w, map[string]interface{}{"ok": true, "cancelled": n})

@@ -20,9 +20,27 @@ func registerHomeAPI(mux *http.ServeMux) {
 }
 
 func handleHomeProfile(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
-	if accountID == "" {
-		accountID = "default"
+	// Require authentication for profile access
+	u := currentUser(r)
+	if u == nil {
+		writeError(w, 401, "unauthorized")
+		return
+	}
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
+	if accountID == "" || accountID == "default" {
+		// No specific account: show user's own account or first accessible one
+		accs := models.GetAccountsByUsername(u.Username)
+		if len(accs) == 0 {
+			accs = models.GetAccounts()
+		}
+		if len(accs) > 0 {
+			accountID = accs[0].ID
+		}
+	}
+	// Verify account access
+	if !isAccountAccessible(u, accountID) {
+		writeError(w, 403, "无权访问该账号")
+		return
 	}
 
 	acc := models.GetAccountByID(accountID)
@@ -84,16 +102,29 @@ func handleHomeProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHomeIncome(w http.ResponseWriter, r *http.Request) {
+	// Require authentication
+	u := currentUser(r)
+	if u == nil {
+		writeError(w, 401, "unauthorized")
+		return
+	}
 	accountID := r.URL.Query().Get("accountId")
 	accountID = resolveAccountID(accountID)
 	if accountID == "" {
-		accs := models.GetAccounts()
-		if len(accs) > 0 {
+		// Default to user's own first account, not first in global list
+		accs := models.GetAccountsByUsername(u.Username)
+		if len(accs) == 0 {
+			accs = models.GetAccounts()
+			if len(accs) > 0 {
+				accountID = accs[0].ID
+			}
+		} else {
 			accountID = accs[0].ID
 		}
 	}
-	if accountID == "" {
-		writeJSON(w, map[string]interface{}{"ok": true, "data": getTodayIncome("default")})
+	// Verify account access
+	if !isAccountAccessible(u, accountID) {
+		writeError(w, 403, "无权访问该账号")
 		return
 	}
 	// 连接成功则同步金币/经验增量
@@ -102,15 +133,24 @@ func handleHomeIncome(w http.ResponseWriter, r *http.Request) {
 		updateStats(accountID, c.Gold(), c.Exp())
 	}
 	income := getTodayIncome(accountID)
-	// 同气礼盒：Node 语义 = ItemNotify 推送(帮忙好友获得) → stats.TongQiGift 今日累计（跨天清零）
-	// 非背包存量（income 卡片全是"今日"口径）。触发可靠性见 gw/client.go applyItemNotify + recordGift 日志。
 	writeJSON(w, map[string]interface{}{"ok": true, "data": income})
 }
 
 func handleHomePatrol(w http.ResponseWriter, r *http.Request) {
+	// Require authentication
+	u := currentUser(r)
+	if u == nil {
+		writeError(w, 401, "unauthorized")
+		return
+	}
 	accountID := r.URL.Query().Get("accountId")
 	if accountID == "" {
 		accountID = "default"
+	}
+	// Verify account access
+	if !isAccountAccessible(u, accountID) {
+		writeError(w, 403, "无权访问该账号")
+		return
 	}
 
 	// POST：保存巡查配置（单字段）
@@ -186,9 +226,22 @@ func handleLogsDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
-	if accountID == "" {
-		accountID = "default"
+	// Require authentication
+	u := currentUser(r)
+	if u == nil {
+		writeError(w, 401, "unauthorized")
+		return
+	}
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
+	if accountID == "" || accountID == "default" {
+		accs := models.GetAccountsByUsername(u.Username)
+		if len(accs) > 0 {
+			accountID = accs[0].ID
+		}
+	}
+	if !isAccountAccessible(u, accountID) {
+		writeError(w, 403, "无权访问该账号")
+		return
 	}
 	path := filepath.Join(dataDir, "logs", accountID+".log")
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -199,7 +252,7 @@ func handleLogsDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHomeLogs(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	lines := readOpLogs(accountID, 100)
 	logs := make([]map[string]interface{}, 0, len(lines))
 	for _, ln := range lines {

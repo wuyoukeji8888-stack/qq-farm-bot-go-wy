@@ -88,7 +88,7 @@ const (
 // ----- List：活动列表 + 时间过滤 -----
 
 func handleActivityList(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return
@@ -228,7 +228,7 @@ var actListFetchAt = map[string]time.Time{} // actlist key -> 上次真实下发
 
 func handleActivityGroup(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	accountID := resolveAccountID(q.Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, q.Get("accountId"))
 	id, _ := strconv.ParseInt(q.Get("id"), 10, 64)
 	if id == 0 {
 		writeJSONMap(w, "ok", false, "error", "id required")
@@ -277,7 +277,7 @@ func rpcRequest(ctx context.Context, accountID, service, method string, body []b
 }
 
 func handleActivitySeason(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	body, err := rpcRequest(ctx, accountID, seasonSvc, "GetSeasonInfo", []byte{}, 15*time.Second)
@@ -291,7 +291,7 @@ func handleActivitySeason(w http.ResponseWriter, r *http.Request) {
 // ----- Solar：节令小礼（节气） -----
 
 func handleActivitySolar(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	body, err := rpcRequest(ctx, accountID, solarSvc, "GetSolarTerms", []byte{}, 15*time.Second)
@@ -305,7 +305,7 @@ func handleActivitySolar(w http.ResponseWriter, r *http.Request) {
 // ----- 千星游记：领取全部可领档位（SeasonService.ClaimBattlePassRewards，空请求） -----
 
 func handleActivitySeasonClaim(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	// before（用于算领取档位数差）
@@ -356,7 +356,7 @@ func handleActivitySeasonClaim(w http.ResponseWriter, r *http.Request) {
 // ----- 节令小礼：领取单个节气（SolarTermsService.ClaimSolarTerms，field1=termId） -----
 
 func handleActivitySolarClaim(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	termID, _ := strconv.ParseInt(r.URL.Query().Get("termId"), 10, 64)
 	b := proto.NewBuilder()
 	b.FieldInt64(1, termID)
@@ -383,7 +383,7 @@ func handleActivitySolarClaim(w http.ResponseWriter, r *http.Request) {
 
 func handleActivityGuanxing(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	accountID := resolveAccountID(q.Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, q.Get("accountId"))
 	id, _ := strconv.ParseInt(q.Get("id"), 10, 64)
 	if id == 0 {
 		id = guanxingActivityID
@@ -405,7 +405,7 @@ func handleActivityGuanxing(w http.ResponseWriter, r *http.Request) {
 
 func handleActivityGuanxingClaim(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	accountID := resolveAccountID(q.Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, q.Get("accountId"))
 	// before
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
@@ -579,7 +579,7 @@ func resolveShopActivityID(ctx context.Context, accountID string, id int64) int6
 
 func handleActivityShop(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	accountID := resolveAccountID(q.Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, q.Get("accountId"))
 	id, _ := strconv.ParseInt(q.Get("id"), 10, 64)
 	if id == 0 {
 		id = actExchangeActID
@@ -627,7 +627,7 @@ func handleActivityShop(w http.ResponseWriter, r *http.Request) {
 // handleActivityShopExchange 兑换星砂商店商品（Operate cmd=1, exchange_shop_operate{id,count}）
 func handleActivityShopExchange(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	accountID := resolveAccountID(q.Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, q.Get("accountId"))
 	id := int64(actExchangeActID)
 	// 前端传的商店节点 id 优先（S3 拾物小铺 2026090103 等，写死的只是旧期兜底）
 	if v, err := strconv.ParseInt(q.Get("id"), 10, 64); err == nil && v > 0 {
@@ -833,7 +833,7 @@ func subFieldBytes(body []byte, field int) []byte {
 }
 
 func handleQingmei(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	rootID, claimID, wineID, root, err := qingmeiActIDs(ctx, accountID)
@@ -906,7 +906,7 @@ func handleQingmei(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleQingmeiClaim(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	rootID, claimID, _, _, err := qingmeiActIDs(ctx, accountID)
@@ -966,7 +966,7 @@ func handleQingmeiClaim(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleQingmeiWine(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	_, _, wineID, _, err := qingmeiActIDs(ctx, accountID)
@@ -1184,7 +1184,7 @@ func qingmeiMarkClaimed(accountID string) {
 // GET /api/debug/act_operate?accountId=X&id=2026081802&cmd=N
 // 向指定账号发送 ActivityService.Operate(id,cmd) 空扩展请求，返回原始回包字段，用于确定鹊桥灵露/筑桥/香囊 cmd。
 func handleDebugActOperate(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	cmd, _ := strconv.ParseInt(r.URL.Query().Get("cmd"), 10, 64)
 	if id <= 0 {
@@ -1261,7 +1261,7 @@ func handleDebugActOperate(w http.ResponseWriter, r *http.Request) {
 // GET /api/debug/act_group_raw?id=2026090901
 // 返回 GetGroup 原始回包全字段树（dbgDumpNode），用于定位领取子节点 id 与操作 cmd。
 func handleDebugActGroupRaw(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	id, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if id <= 0 {
 		writeError(w, 400, "missing/invalid id")
@@ -1356,7 +1356,7 @@ func dbgDumpNode(raw []byte, depth, maxDepth int) map[string]interface{} {
 // GET /api/debug/plant_rpc?accountId=X&method=<PlantService方法>&land_id=..&host_gid=..&item_id=..
 // 参数布局：land_ids=1 / host_gid=2 / item_id=3（可先试 Fertilize 类 {land_ids=1,item_id=2}）
 func handleDebugPlantRPC(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	method := r.URL.Query().Get("method")
 	layout := r.URL.Query().Get("layout")
 	landID, _ := strconv.ParseInt(r.URL.Query().Get("land_id"), 10, 64)
@@ -1406,7 +1406,7 @@ func handleDebugPlantRPC(w http.ResponseWriter, r *http.Request) {
 
 // ===== 临时调试：背包物品列表（鹊桥物品ID/数量确认，探测后删除） ======
 func handleDebugBagDump(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	c, err := clientPool.Get(accountID)
@@ -1434,7 +1434,7 @@ func handleDebugBagDump(w http.ResponseWriter, r *http.Request) {
 // ===== 鹊桥寄情：首页动态数据（鹊羽/鹊羽灵露/进度/香囊）=====
 // 鹊羽灵露 = 背包物品 301103；鹊羽当前未获得（来源待 Activity 状态 cmd 确认）；筑桥进度/香囊待确认。
 func handleQiXiStatus(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -1582,7 +1582,7 @@ func parseQiXiTierFlags(body []byte) map[int64]int64 {
 // POST /api/activity/qixi/spray  body: {"accountId":"...","hostGid":123,"landIds":[1,2]}
 // hostGid>0 喷好友地块（AllLands(hostGid)）；不传则喷自己地块；landIds 不传则自动选全部有作物地块；每块 +1 鹊羽。
 func handleQiXiSpray(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	var req struct {
 		AccountID string  `json:"accountId"`
 		HostGID   int64   `json:"hostGid"`
@@ -1713,7 +1713,7 @@ func handleQiXiSpray(w http.ResponseWriter, r *http.Request) {
 // （鹊羽香囊1025×5 + 8小时化肥80003×4 + 点券1002×200）、.2.3.112.2.N.4=档位 flag(2=已领取)
 // 线上验证：Agoni 重复调用返回"该步骤奖励已领取"= 结构正确。
 func handleQiXiBridge(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	var req struct {
 		AccountID string `json:"accountId"`
 	}
@@ -1749,7 +1749,7 @@ func handleQiXiBridge(w http.ResponseWriter, r *http.Request) {
 // POST /api/activity/qixi/gift  body: {"accountId":"...","hostGid":123}
 // 玩法（tips 第 6 条）：活动期间可将鹊羽香囊赠送给好友。
 func handleQiXiGift(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	var req struct {
 		AccountID string `json:"accountId"`
 		HostGID   int64  `json:"hostGid"`
@@ -1867,7 +1867,7 @@ func qixiItemName(id int64) string {
 // ===== 临时调试：ItemService.Use 探测（灵露喷洒=放黄金虫=使用物品到地块）=====
 // GET /api/debug/item_use?accountId=X&item=..&count=..&land_id=..&land_field=3&shape=nested|flat
 func handleDebugItemUse(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	item, _ := strconv.ParseInt(r.URL.Query().Get("item"), 10, 64)
 	count, _ := strconv.ParseInt(r.URL.Query().Get("count"), 10, 64)
 	landID, _ := strconv.ParseInt(r.URL.Query().Get("land_id"), 10, 64)
@@ -1998,7 +1998,7 @@ func actManualClaimOperate(ctx context.Context, accountID string, activityID, cm
 //   cmd        可选，Operate 命令号，默认 actManualClaimCmd
 func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	accountID := resolveAccountID(q.Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, q.Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return

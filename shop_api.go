@@ -67,10 +67,17 @@ func registerShopAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/shop/mystery/abandon", handleShopMysteryAbandon)
 }
 
-// shopClient 解析账号ID并返回其客户端；未连接返回 nil
+// shopClient 解析账号ID并返回其客户端；未连接或无权访问返回 nil
 func shopClient(r *http.Request) *gw.Client {
+	u := currentUser(r)
+	if u == nil {
+		return nil
+	}
 	accountID := reqAccountID(r)
 	if accountID == "" {
+		return nil
+	}
+	if !isAccountAccessible(u, accountID) {
 		return nil
 	}
 	c := clientPool.cached(accountID)
@@ -322,9 +329,8 @@ func handleShopSeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	c := clientPool.cached(accountID)
@@ -358,9 +364,8 @@ func handleShopPet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing x-account-id")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	c := clientPool.cached(accountID)

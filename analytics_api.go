@@ -277,6 +277,11 @@ func handleAnalytics(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
+	// Analytics is global (doesn't need account auth), but we require user auth for all endpoints
+	if currentUser(r) == nil {
+		writeError(w, 401, "unauthorized")
+		return
+	}
 	sortBy := r.URL.Query().Get("sort")
 	if sortBy == "" {
 		sortBy = "exp"
@@ -303,9 +308,8 @@ func setPlantBlacklist(accountID string, list []int) {
 }
 
 func handlePlantBlacklist(w http.ResponseWriter, r *http.Request) {
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing accountId")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	switch r.Method {
@@ -348,9 +352,8 @@ func handlePlantBlacklistBatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := reqAccountID(r)
-	if accountID == "" {
-		writeError(w, 400, "Missing accountId")
+	accountID, _, ok := requireAccountAuth(w, r)
+	if !ok {
 		return
 	}
 	var body struct {

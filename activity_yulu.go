@@ -202,7 +202,7 @@ func yuluMutateTargets(lands []*proto.LandInfo, now int64) []int64 {
 // 返回顶部 8 统计所需数据：雷电徽章(占位) + 5001~5010 各物品实时数量/图片/名称（读背包）。
 // 气象研究档位占位（待开服抓包 claim cmd/节点号）。
 func handleYuluStatus(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	c, err := clientPool.Get(accountID)
@@ -284,7 +284,7 @@ func handleYuluOpen(w http.ResponseWriter, r *http.Request) {
 		writeJSONMap(w, "ok", false, "error", "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if req.AccountID != "" {
 		accountID = req.AccountID
 	}
@@ -327,7 +327,7 @@ func handleYuluMutate(w http.ResponseWriter, r *http.Request) {
 		writeJSONMap(w, "ok", false, "error", "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if req.AccountID != "" {
 		accountID = req.AccountID
 	}
@@ -405,7 +405,7 @@ func handleYuluUse(w http.ResponseWriter, r *http.Request) {
 		writeJSONMap(w, "ok", false, "error", "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if req.AccountID != "" {
 		accountID = req.AccountID
 	}
@@ -617,7 +617,7 @@ func handleYuluResearch(w http.ResponseWriter, r *http.Request) {
 		writeJSONMap(w, "ok", false, "error", "bad json")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if req.AccountID != "" {
 		accountID = req.AccountID
 	}
@@ -655,7 +655,7 @@ func handleYuluResearch(w http.ResponseWriter, r *http.Request) {
 // ===== 兑换收集瓶子：POST /api/activity/yulu/exchange =====
 // 消耗金豆(1005)×200 → 天气采集瓶(5001)×1，每自然日限购 1 次。
 func handleYuluExchange(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
 		writeJSONMap(w, "ok", false, "error", "缺少 accountId")
 		return

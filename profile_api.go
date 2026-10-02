@@ -535,7 +535,7 @@ func handleFarmHarvest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "missing landId")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -560,7 +560,7 @@ func handleFarmHarvest(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFarmPlant(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -591,7 +591,7 @@ func handleFarmPlant(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBagItems(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -667,7 +667,7 @@ func handleBagItems(w http.ResponseWriter, r *http.Request) {
 // handleFertilizerCapacity GET /api/farm/fertilizer-capacity
 // 化肥容器剩余时间（背包 1011 普通 / 1012 有机，count 秒 → 小时）；cap 为显示上限 999 小时
 func handleFertilizerCapacity(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -697,7 +697,7 @@ func handleBagSeeds(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -803,7 +803,7 @@ func handleBagUse(w http.ResponseWriter, r *http.Request) {
 	if req.Count <= 0 {
 		req.Count = 1
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -852,7 +852,7 @@ func handleBagSell(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "items 无效")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -926,7 +926,7 @@ func itoa(v int64) string { return strconv.FormatInt(v, 10) }
 // 护主犬(dogId)来自本地狗信息缓存（由 fetch-dog-info / 巡查时 Enter 收集），
 // 可偷/可帮忙摘要直接取自 GetAll 响应的 friend.plant 字段。
 func handleFriendList(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -1059,13 +1059,13 @@ func handleFriendListCacheClear(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	clearFriendsListCache(accountID)
 	writeJSON(w, map[string]interface{}{"ok": true, "message": "好友列表缓存已清"})
 }
 
 func handleFriendLandsRoute(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	gidStr := r.URL.Query().Get("gid")
 	gid, err := strconv.ParseInt(gidStr, 10, 64)
 	if gidStr == "" || err != nil || gid <= 0 {
@@ -1087,7 +1087,7 @@ func handleFriendLandsRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFriendBlacklist(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	// 本地黑名单库
 	entries := getBlacklistEntries(accountID)
 	out := make([]map[string]interface{}, 0, len(entries))
@@ -1106,7 +1106,7 @@ func handleFriendBlacklist(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFriendRequests(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -1133,7 +1133,7 @@ func handleFriendRequests(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFriendVisitors(w http.ResponseWriter, r *http.Request) {
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())
@@ -1307,7 +1307,7 @@ func handleFarmAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "missing action")
 		return
 	}
-	accountID := resolveAccountID(r.URL.Query().Get("accountId"))
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	c, err := clientPool.Get(accountID)
 	if err != nil {
 		writeError(w, 400, "网关未连接: "+err.Error())

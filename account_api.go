@@ -30,16 +30,36 @@ func registerAccountAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/yyb/qr/confirm", handleYybQRConfirm)
 }
 
+// accountOwner returns the username that owns the account, or "" if not found
+func accountOwner(accountID string) string {
+	acc := models.GetAccountByID(accountID)
+	if acc == nil {
+		return ""
+	}
+	return acc.Username
+}
+
+// isAccountAccessible checks whether user u can access accountID.
+// admin/super_admin can access any account; regular users can only access their own.
+func isAccountAccessible(u *models.User, accountID string) bool {
+	if u == nil {
+		return false
+	}
+	if u.Role == "admin" || u.Role == "super_admin" {
+		return true
+	}
+	owner := accountOwner(accountID)
+	return owner == u.Username
+}
+
 // ---- 账号管理 ----
 
 func handleAccounts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		accounts := models.GetAccounts()
-		if tok := userTokenFromRequest(r); tok != "" {
-			if u := models.GetUserByToken(tok); u != nil && u.Role != "admin" && u.Role != "super_admin" {
-				accounts = models.GetAccountsByUsername(u.Username)
-			}
+		if u := currentUser(r); u != nil && u.Role != "admin" && u.Role != "super_admin" {
+			accounts = models.GetAccountsByUsername(u.Username)
 		}
 		// 在线状态用网关连接实时判断——
 		// 持久化 status 创建即 offline 且从不更新，故这里覆盖返回，不写库。
@@ -174,8 +194,13 @@ func handleActiveAccount(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "缺少账号 id")
 			return
 		}
-		if models.GetAccountByID(body.ID) == nil {
+		acc := models.GetAccountByID(body.ID)
+		if acc == nil {
 			writeError(w, 404, "账号不存在")
+			return
+		}
+		if !isAccountAccessible(currentUser(r), body.ID) {
+			writeError(w, 403, "无权访问该账号")
 			return
 		}
 		if err := models.SetActiveAccount(body.ID); err != nil {
@@ -209,6 +234,15 @@ func handleAccountByID(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case "DELETE":
+		acc := models.GetAccountByID(id)
+		if acc == nil {
+			writeError(w, 404, "account not found")
+			return
+		}
+		if !isAccountAccessible(currentUser(r), id) {
+			writeError(w, 403, "无权删除该账号")
+			return
+		}
 		if err := models.DeleteAccount(id); err != nil {
 			writeError(w, 404, "account not found")
 			return
@@ -225,6 +259,10 @@ func handleAccountByID(w http.ResponseWriter, r *http.Request) {
 		acc := models.GetAccountByID(id)
 		if acc == nil {
 			writeError(w, 404, "account not found")
+			return
+		}
+		if !isAccountAccessible(currentUser(r), id) {
+			writeError(w, 403, "无权修改该账号")
 			return
 		}
 		if body.Name != "" {
