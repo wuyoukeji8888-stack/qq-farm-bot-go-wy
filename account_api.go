@@ -42,17 +42,55 @@ func accountOwner(accountID string) string {
 // isAccountAccessible checks whether user u can access accountID.
 // admin/super_admin can access any account; regular users can access their own accounts
 // or unbound accounts (Username == "") to allow claiming.
+func isAdminUser(u *models.User) bool {
+	return u != nil && (u.Role == "admin" || u.Role == "super_admin")
+}
+
 func isAccountAccessible(u *models.User, accountID string) bool {
-	if u == nil {
+	if u == nil || accountID == "" {
 		return false
 	}
-	if u.Role == "admin" || u.Role == "super_admin" {
+	if isAdminUser(u) {
 		return true
 	}
-	owner := accountOwner(accountID)
-	// Allow access if account is owned by user, or if account is unbound (Username == "")
-	// Unbound accounts can be claimed by any authenticated user
-	return owner == u.Username || owner == ""
+	acc := models.GetAccountByID(accountID)
+	if acc == nil {
+		return false
+	}
+	return acc.Username == u.Username || acc.Username == ""
+}
+
+func userVisibleAccounts(u *models.User) []models.Account {
+	if u == nil {
+		return nil
+	}
+	if isAdminUser(u) {
+		return models.GetAccounts()
+	}
+	return models.GetAccountsByUsername(u.Username)
+}
+
+func firstOwnedAccountID(u *models.User) string {
+	accs := userVisibleAccounts(u)
+	if len(accs) == 0 {
+		return ""
+	}
+	return accs[0].ID
+}
+
+func ensureAccountQuota(username string) error {
+	if username == "" {
+		return nil
+	}
+	u, err := models.GetUserByUsername(username)
+	if err != nil || u == nil {
+		return nil
+	}
+	limit := models.EffectiveAccountLimit(u)
+	if limit != -1 && models.CountAccountsByUsername(username) >= limit {
+		return fmt.Errorf("已达账号上限，请使用额度卡密提升上限")
+	}
+	return nil
 }
 
 // ---- 账号管理 ----
@@ -60,9 +98,28 @@ func isAccountAccessible(u *models.User, accountID string) bool {
 func handleAccounts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		accounts := models.GetAccounts()
-		if u := currentUser(r); u != nil && u.Role != "admin" && u.Role != "super_admin" {
-			accounts = models.GetAccountsByUsername(u.Username)
+		u := currentUser(r)
+		if u == nil {
+			writeError(w, 401, "unauthorized")
+			return
+		}
+		accounts := userVisibleAccounts(u)
+		if len(accounts) == 0 && !isAdminUser(u) {
+			claimID := r.URL.Query().Get("accountId")
+			if claimID == "" || claimID == "default" {
+				claimID = models.GetActiveAccountID()
+			}
+			if acc := models.GetAccountByID(claimID); acc != nil && acc.Username == "" {
+				if err := ensureAccountQuota(u.Username); err == nil {
+					acc.Username = u.Username
+					if _, err := models.AddOrUpdateAccount(*acc); err == nil {
+						accounts = []models.Account{*acc}
+					}
+				}
+			}
+		}
+		if accounts == nil {
+			accounts = []models.Account{}
 		}
 		// 在线状态用网关连接实时判断——
 		// 持久化 status 创建即 offline 且从不更新，故这里覆盖返回，不写库。
@@ -81,6 +138,10 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]interface{}{"ok": true, "data": accounts})
 	case "POST":
+		u, ok := requireUserAuth(w, r)
+		if !ok {
+			return
+		}
 		var body struct {
 			Name       string                     `json:"name"`
 			Code       string                     `json:"code"`
@@ -102,16 +163,7 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 		if body.Platform == "" {
 			body.Platform = "qq"
 		}
-		ownerUsername := ""
-		if tok := userTokenFromRequest(r); tok != "" {
-			if u := models.GetUserByToken(tok); u != nil {
-				ownerUsername = u.Username
-				if models.UserExpired(u) {
-					writeError(w, 403, "账号已过期，请先续费")
-					return
-				}
-			}
-		}
+		ownerUsername := u.Username
 		// 去重：同一 openid 重扫（掉线重新扫码/应用宝）复用已有账号，避免重复添加
 		var acc models.Account
 		if body.OpenID != "" {
@@ -128,14 +180,9 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if acc.ID == "" {
-			if ownerUsername != "" {
-				if u, err := models.GetUserByUsername(ownerUsername); err == nil && u != nil {
-					limit := models.EffectiveAccountLimit(u)
-					if limit != -1 && models.CountAccountsByUsername(ownerUsername) >= limit {
-						writeError(w, 403, "已达账号上限，请使用额度卡密提升上限")
-						return
-					}
-				}
+			if err := ensureAccountQuota(ownerUsername); err != nil {
+				writeError(w, 403, err.Error())
+				return
 			}
 			acc = models.Account{
 				ID:         fmt.Sprintf("%d", time.Now().UnixNano()),
@@ -154,8 +201,17 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 			if acc.Name == "" {
 				acc.Name = "新账号"
 			}
-		} else if ownerUsername != "" && acc.Username == "" {
-			acc.Username = ownerUsername
+		} else if ownerUsername != "" && (acc.Username == "" || acc.Username == ownerUsername) {
+			if acc.Username == "" {
+				if err := ensureAccountQuota(ownerUsername); err != nil {
+					writeError(w, 403, err.Error())
+					return
+				}
+				acc.Username = ownerUsername
+			}
+		} else if ownerUsername != "" && acc.Username != ownerUsername && !isAdminUser(currentUser(r)) {
+			writeError(w, 403, "该农场账号已绑定其他用户")
+			return
 		}
 		result, err := models.AddOrUpdateAccount(acc)
 		if err != nil {
@@ -182,16 +238,14 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 func handleActiveAccount(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		// 解析当前活跃账号，考虑用户归属
+		u := currentUser(r)
+		if u == nil {
+			writeError(w, 401, "unauthorized")
+			return
+		}
 		accountID := models.GetActiveAccountID()
-		if accountID == "" {
-			// 无活跃账号时，返回用户自己的第一个账号
-			if u := currentUser(r); u != nil {
-				accs := models.GetAccountsByUsername(u.Username)
-				if len(accs) > 0 {
-					accountID = accs[0].ID
-				}
-			}
+		if accountID == "" || !isAccountAccessible(u, accountID) {
+			accountID = firstOwnedAccountID(u)
 		}
 		writeJSON(w, map[string]interface{}{"ok": true, "data": map[string]interface{}{
 			"accountId": accountID,

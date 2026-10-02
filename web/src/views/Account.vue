@@ -13,6 +13,7 @@ const accounts = ref([])
 const activeId = ref('')          // 当前 active 账号（来自 GET /api/accounts/active）
 const sheet = ref('')             // '' | manage | add | qr
 const editing = ref(null)
+const delTarget = ref(null)
 const limitText = computed(() => {
   const n = account.userInfo?.accountLimit
   if (n === -1) return '无限'
@@ -25,13 +26,21 @@ async function loadAccounts() {
     const { data } = await api.get('/api/accounts')
     accounts.value = (data && data.data) || []
   } catch (e) { accounts.value = [] }
+  const ids = new Set(accounts.value.map((a) => String(a.id)))
+  let cur = ''
   try {
     const { data } = await api.get('/api/accounts/active')
-    const cur = data && data.data && data.data.accountId
-    activeId.value = cur ? String(cur) : (accounts.value[0] && String(accounts.value[0].id)) || ''
-    if (activeId.value) setAccountId(activeId.value)
-  } catch (e) {
-    activeId.value = (accounts.value[0] && String(accounts.value[0].id)) || ''
+    cur = data && data.data && data.data.accountId ? String(data.data.accountId) : ''
+  } catch (e) { cur = '' }
+  if (!cur || !ids.has(cur)) {
+    cur = accounts.value[0] ? String(accounts.value[0].id) : ''
+  }
+  activeId.value = cur
+  if (cur) {
+    setAccountId(cur)
+    account.switchAccount(cur)
+  } else {
+    setAccountId('')
   }
 }
 
@@ -195,10 +204,21 @@ async function saveEdit() {
   } catch (e) { app.error(e.response?.data?.error || '保存失败') }
 }
 async function delAcc(id) {
-  if (!confirm('确定删除该账号？此操作不可恢复，删除后需重新添加 code 才能登录。')) return
+  delTarget.value = id
+}
+async function confirmDel() {
+  const id = delTarget.value
+  if (!id) return
+  delTarget.value = null
   try {
     const { data } = await api.delete(`/api/accounts/${encodeURIComponent(id)}`)
-    if (data?.ok) { app.success('已删除'); await loadAccounts() }
+    if (data?.ok) {
+      app.success('已删除')
+      if (String(activeId.value) === String(id)) {
+        account.switchAccount('')
+      }
+      await loadAccounts()
+    }
     else app.error('删除失败: ' + (data?.error || '?'))
   } catch (e) { app.error(e.response?.data?.error || '删除失败') }
 }
@@ -315,7 +335,7 @@ onUnmounted(() => { stopQr(); window.removeEventListener('account-switched', onA
         <div style="display:flex;gap:6px;margin-left:auto">
           <button class="bi-use" @click="switchAcc(a.id)">切换</button>
           <button class="bi-use" @click="editing = { id: a.id, name: a.name, code: a.code || '' }; loadRc(a.id)">编辑</button>
-          <button class="bi-sell" @click="delAcc(a.id)">删除</button>
+          <button class="bi-sell" @click.stop="delAcc(a.id)">删除</button>
         </div>
         <div v-if="editing && editing.id === a.id" style="width:100%;margin-top:8px">
           <div style="display:flex;gap:6px">
@@ -359,6 +379,17 @@ onUnmounted(() => { stopQr(); window.removeEventListener('account-switched', onA
       <p v-if="!accounts.length" style="text-align:center;color:var(--muted);padding:20px 0">暂无账号</p>
     </div>
     <button class="close" style="margin-top:16px" @click="sheet=''">关闭</button>
+  </div>
+
+  <div v-if="delTarget" class="sheet-mask show" @click="delTarget = null"></div>
+  <div v-if="delTarget" class="sheet show">
+    <div class="handle"></div>
+    <h3>删除账号</h3>
+    <p class="sub">确定删除该账号？删除后需重新添加 code 才能登录。</p>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="close" style="flex:1;margin:0" @click="delTarget = null">取消</button>
+      <button class="close" style="flex:1;margin:0;background:var(--danger,#e5484d);color:#fff;border-color:transparent" @click="confirmDel">确认删除</button>
+    </div>
   </div>
 
   <!-- 手动添加 code sheet -->

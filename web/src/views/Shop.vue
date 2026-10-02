@@ -36,8 +36,12 @@ function fmtBig(n) {
   return v.toLocaleString()
 }
 
-async function loadSeed() {
-  if (!acc()) { seed.list = []; return }
+async function loadSeed(retries = 4) {
+  if (!acc()) {
+    seed.list = []
+    if (retries > 0) setTimeout(() => loadSeed(retries - 1), 400)
+    return
+  }
   try { const { data } = await api.get('/api/shop/seed'); seed.list = data?.data || [] } catch (e) { seed.list = [] }
   seed.list.forEach(i => { if (seed.qty[i.id] === undefined) seed.qty[i.id] = 1 })
 }

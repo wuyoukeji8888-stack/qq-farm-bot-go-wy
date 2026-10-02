@@ -27,19 +27,15 @@ func handleHomeProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
-	if accountID == "" || accountID == "default" {
-		// No specific account: show user's own account or first accessible one
-		accs := models.GetAccountsByUsername(u.Username)
-		if len(accs) == 0 {
-			accs = models.GetAccounts()
-		}
-		if len(accs) > 0 {
-			accountID = accs[0].ID
-		}
+	if accountID == "" {
+		accountID = firstOwnedAccountID(u)
 	}
-	// Verify account access
-	if !isAccountAccessible(u, accountID) {
-		writeError(w, 403, "无权访问该账号")
+	if accountID == "" || !isAccountAccessible(u, accountID) {
+		writeJSON(w, map[string]interface{}{"ok": true, "data": map[string]interface{}{
+			"connected": false, "name": "", "uid": "", "avatar": "",
+			"level": int64(0), "gold": int64(0), "coupons": int64(0),
+			"goldenBeans": int64(0), "exp": int64(0), "expMax": int64(0), "expPercent": 0,
+		}})
 		return
 	}
 
@@ -108,23 +104,12 @@ func handleHomeIncome(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "unauthorized")
 		return
 	}
-	accountID := r.URL.Query().Get("accountId")
-	accountID = resolveAccountIDWithOwner(r, accountID)
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
-		// Default to user's own first account, not first in global list
-		accs := models.GetAccountsByUsername(u.Username)
-		if len(accs) == 0 {
-			accs = models.GetAccounts()
-			if len(accs) > 0 {
-				accountID = accs[0].ID
-			}
-		} else {
-			accountID = accs[0].ID
-		}
+		accountID = firstOwnedAccountID(u)
 	}
-	// Verify account access
-	if !isAccountAccessible(u, accountID) {
-		writeError(w, 403, "无权访问该账号")
+	if accountID == "" || !isAccountAccessible(u, accountID) {
+		writeJSON(w, map[string]interface{}{"ok": true, "data": getTodayIncome("")})
 		return
 	}
 	// 连接成功则同步金币/经验增量
@@ -143,14 +128,14 @@ func handleHomePatrol(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "unauthorized")
 		return
 	}
-	accountID := r.URL.Query().Get("accountId")
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
-		accountID = "default"
+		accountID = firstOwnedAccountID(u)
 	}
-	accountID = resolveAccountIDWithOwner(r, accountID)
-	// Verify account access
-	if !isAccountAccessible(u, accountID) {
-		writeError(w, 403, "无权访问该账号")
+	if accountID == "" || !isAccountAccessible(u, accountID) {
+		writeJSON(w, map[string]interface{}{"ok": true, "data": map[string]interface{}{
+			"steal": map[string]interface{}{}, "help": map[string]interface{}{}, "farm": map[string]interface{}{},
+		}})
 		return
 	}
 
@@ -234,14 +219,11 @@ func handleLogsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
-	if accountID == "" || accountID == "default" {
-		accs := models.GetAccountsByUsername(u.Username)
-		if len(accs) > 0 {
-			accountID = accs[0].ID
-		}
+	if accountID == "" {
+		accountID = firstOwnedAccountID(u)
 	}
-	if !isAccountAccessible(u, accountID) {
-		writeError(w, 403, "无权访问该账号")
+	if accountID == "" || !isAccountAccessible(u, accountID) {
+		writeJSON(w, map[string]interface{}{"ok": true, "message": "日志已清空", "accountId": ""})
 		return
 	}
 	path := filepath.Join(dataDir, "logs", accountID+".log")
@@ -253,7 +235,19 @@ func handleLogsDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHomeLogs(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	if u == nil {
+		writeError(w, 401, "unauthorized")
+		return
+	}
 	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
+	if accountID == "" {
+		accountID = firstOwnedAccountID(u)
+	}
+	if accountID == "" || !isAccountAccessible(u, accountID) {
+		writeJSON(w, map[string]interface{}{"ok": true, "data": []map[string]interface{}{}})
+		return
+	}
 	lines := readOpLogs(accountID, 100)
 	logs := make([]map[string]interface{}, 0, len(lines))
 	for _, ln := range lines {

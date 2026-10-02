@@ -60,8 +60,17 @@ const careerOpen = ref(false)
 const career = ref(null)
 const careerLoading = ref(false)
 
+let loadRetry = 0
 async function load() {
-  if (!acc()) { loading.value = false; return }   // 未选账号：不发起注定失败的游戏数据请求
+  if (!acc()) {
+    loading.value = false
+    if (loadRetry < 6) {
+      loadRetry++
+      setTimeout(load, 400)
+    }
+    return
+  }
+  loadRetry = 0
   loading.value = true
   try {
     const [p, inc, pat, lg] = await Promise.all([

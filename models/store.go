@@ -360,7 +360,7 @@ func GetAccountsByUsername(username string) []Account {
 	defer mu.RUnlock()
 	var result []Account
 	for _, acc := range accounts {
-		if acc.Username == username || acc.Username == "" {
+		if acc.Username == username {
 			result = append(result, acc)
 		}
 	}

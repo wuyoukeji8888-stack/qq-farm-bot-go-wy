@@ -36,9 +36,10 @@ func registerProfileAPI(mux *http.ServeMux) {
 }
 
 func handleFarmLands(w http.ResponseWriter, r *http.Request) {
-	accountID := r.URL.Query().Get("accountId")
+	accountID := resolveAccountIDWithOwner(r, r.URL.Query().Get("accountId"))
 	if accountID == "" {
-		accountID = "default"
+		writeError(w, 400, "缺少 accountId")
+		return
 	}
 
 	// 连接网关拉真实农场数据

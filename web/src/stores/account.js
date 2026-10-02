@@ -41,23 +41,28 @@ export const useAccountStore = defineStore('account', {
       this.userInfo = null
       this.accounts = []
       this.currentId = ''
+      setAccountId('')
     },
     
     // 加载账号列表
     async loadAccounts() {
       const { data } = await api.get('/api/accounts')
       this.accounts = (data && data.data) || data.accounts || data.list || []
-      // 若当前无选中账号，默认选中首个
-      if (!this.currentId && this.accounts.length) {
+      const exists = this.accounts.some((a) => String(a.id) === String(this.currentId))
+      if (this.accounts.length && !exists) {
         this.switchAccount(this.accounts[0].id)
+      } else if (!this.accounts.length) {
+        this.currentId = ''
+        setAccountId('')
       }
       return this.accounts
     },
     
     // 切换账号
     switchAccount(id) {
-      this.currentId = String(id)
-      setAccountId(String(id))
+      const next = id ? String(id) : ''
+      this.currentId = next
+      setAccountId(next)
     },
   },
 })

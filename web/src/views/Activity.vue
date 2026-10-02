@@ -648,11 +648,14 @@ function payloadUid(tree) {
 }
 
 /* ---------- 加载活动列表 + 选中组 ---------- */
-async function loadActivity() {
+async function loadActivity(retries = 4) {
   loading.value = true
   err.value = ''
   const a = acc()
-  if (!a) { err.value = '请先选择账号'; groups.value = []; panels.value = []; loading.value = false; return }
+  if (!a) {
+    if (retries > 0) { setTimeout(() => loadActivity(retries - 1), 400); return }
+    err.value = '请先选择账号'; groups.value = []; panels.value = []; loading.value = false; return
+  }
   try {
     const { data } = await api.get('/api/activity/list', { params: { scope: 'ongoing' } })
     if (!(data && data.ok)) { err.value = (data && data.error) || '加载失败'; groups.value = []; panels.value = []; loading.value = false; return }

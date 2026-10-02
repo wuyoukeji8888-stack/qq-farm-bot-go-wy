@@ -244,19 +244,15 @@ func resolveAccountID(accountID string) string {
 // 如果用户已登录且请求解析出的账号不属于该用户，则返回空字符串（表示无权访问）。
 // 如果账号ID为空或"default"，则优先返回当前用户的第一个账号（而非全局默认账号）。
 func resolveAccountIDWithOwner(r *http.Request, accountID string) string {
+	u := currentUser(r)
 	if accountID == "" || accountID == "default" {
-		if u := currentUser(r); u != nil {
-			accs := models.GetAccountsByUsername(u.Username)
-			if len(accs) > 0 {
-				return accs[0].ID
-			}
+		if u != nil {
+			return firstOwnedAccountID(u)
 		}
-		return models.GetDefaultAccountID()
+		return ""
 	}
-	if u := currentUser(r); u != nil {
-		if !isAccountAccessible(u, accountID) {
-			return ""
-		}
+	if u != nil && !isAccountAccessible(u, accountID) {
+		return ""
 	}
 	return accountID
 }

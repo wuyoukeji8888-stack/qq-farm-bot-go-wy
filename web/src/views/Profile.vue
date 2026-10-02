@@ -477,8 +477,15 @@ async function onFsub(s) {
 }
 
 // 切号事件：按当前 tab 用新账号重拉数据（热切换）
-const onSwitched = () => { if (!acc()) return; onTab(tab.value) }
-onMounted(() => { if (!acc()) return; loadLands(); landTimer = setInterval(landCountdown, 1000); window.addEventListener('account-switched', onSwitched) })
+const onSwitched = () => {
+  if (!acc()) return
+  if (!landTimer) landTimer = setInterval(landCountdown, 1000)
+  onTab(tab.value)
+}
+onMounted(() => {
+  if (acc()) { loadLands(); landTimer = setInterval(landCountdown, 1000) }
+  window.addEventListener('account-switched', onSwitched)
+})
 onUnmounted(() => { clearInterval(landTimer); window.removeEventListener('account-switched', onSwitched); stopApplyPoll() })
 </script>
 

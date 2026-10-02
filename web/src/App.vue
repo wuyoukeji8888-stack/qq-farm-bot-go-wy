@@ -40,6 +40,9 @@ onMounted(async () => {
     try {
       await account.loadUserInfo()
       await account.loadAccounts()
+      if (account.currentId) {
+        window.dispatchEvent(new CustomEvent('account-switched', { detail: { id: String(account.currentId) } }))
+      }
     } catch (e) {
       /* 未登录则停留在登录页 */
     }
