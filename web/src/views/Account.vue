@@ -72,33 +72,49 @@ async function addByCode() {
 /* ---------- 扫码登录 YYB ---------- */
 const qrUrl = ref(''); const qrMsg = ref(''); const qrBusy = ref(false)
 let qrTimer = null
-function stopQr() { if (qrTimer) { clearInterval(qrTimer); qrTimer = null } }
+let qrSeq = 0
+function stopQr() {
+  qrSeq++
+  if (qrTimer) { clearInterval(qrTimer); qrTimer = null }
+}
 function _qrStatus(text) { qrMsg.value = text }
 function _renderQrImg(src) {
   if (!src) return ''
-  const s = /^data:/i.test(src) ? src : (/^https?:/i.test(src) ? src : 'data:image/png;base64,' + src)
-  return s
+  if (/^data:/i.test(src) || /^https?:/i.test(src) || src.charAt(0) === '/') return src
+  return 'data:image/png;base64,' + src
+}
+function _qrErr(e, fallback) {
+  return e?.response?.data?.error || e?.message || fallback
 }
 async function _pollQrOnce(sessionId) {
   try {
-    const { data } = await api.post('/api/yyb/qr/poll', { sessionId })
-    if (!(data?.ok && data.data)) return { terminal: false, ready: false }
+    const { data } = await api.post('/api/yyb/qr/poll', { sessionId }, { timeout: 60000 })
+    if (!(data?.ok && data.data)) return { terminal: true, msg: data?.error || '扫码状态异常' }
     const st = data.data.status
     if (st === 'authorized' || st === 'confirmed') return { terminal: false, ready: true }
     if (st === 'pending') { _qrStatus('等待手机扫码…'); return { terminal: false, ready: false } }
     if (st === 'scanned') { _qrStatus('已扫描，请在手机上确认…'); return { terminal: false, ready: false } }
     if (st === 'cancelled') return { terminal: true, msg: '已取消扫码' }
     if (st === 'expired') return { terminal: true, msg: '二维码已失效' }
+    if (st === 'unknown') return { terminal: true, msg: '二维码状态未知，请重新获取' }
     return { terminal: false, ready: false }
-  } catch (e) { return { terminal: false, ready: false } }
+  } catch (e) {
+    const status = e?.response?.status
+    const msg = _qrErr(e, '')
+    if (status === 401) return { terminal: true, msg: '登录已过期，请重新登录' }
+    if (status && status >= 400 && status < 500) return { terminal: true, msg: msg || '扫码失败' }
+    return { terminal: false, ready: false, err: msg || '扫码轮询失败' }
+  }
 }
 async function startQrLogin() {
   stopQr(); qrUrl.value = ''; qrMsg.value = '正在获取二维码…'; qrBusy.value = true
+  const seq = qrSeq
   let sessionId = null
   try {
     // 1. 拉二维码
-    const { data } = await api.post('/api/yyb/qr/create', {})
-    if (!(data?.ok && data?.data)) { _qrStatus('获取二维码失败'); qrBusy.value = false; return }
+    const { data } = await api.post('/api/yyb/qr/create', {}, { timeout: 60000 })
+    if (seq !== qrSeq) return
+    if (!(data?.ok && data?.data)) { _qrStatus('获取二维码失败: ' + (data?.error || '未知')); qrBusy.value = false; return }
     const d = data.data
     sessionId = d.session_id
     if (!sessionId) { _qrStatus('后端未返回 session_id'); qrBusy.value = false; return }
@@ -109,25 +125,31 @@ async function startQrLogin() {
     const deadline = Date.now() + 180000
     let ready = false, terminalMsg = null
     while (Date.now() < deadline) {
+      if (seq !== qrSeq) return
       const pr = await _pollQrOnce(sessionId)
+      if (seq !== qrSeq) return
       if (pr.terminal) { terminalMsg = pr.msg; break }
       if (pr.ready) { ready = true; break }
+      if (pr.err) _qrStatus(pr.err)
       await new Promise(r => setTimeout(r, 2500))
     }
+    if (seq !== qrSeq) return
     if (terminalMsg) { _qrStatus(terminalMsg); qrBusy.value = false; return }
     if (!ready) { _qrStatus('登录超时，请重新获取二维码'); qrBusy.value = false; return }
 
     // 3. confirm → openid
     _qrStatus('手机已确认，正在登录…')
-    const cf = (await api.post('/api/yyb/qr/confirm', { sessionId })).data
-    const cfa = cf && cf.data
-    const openid = cfa && (cfa.openid || cfa.ref)
+    const cf = (await api.post('/api/yyb/qr/confirm', { sessionId }, { timeout: 60000 })).data
+    if (seq !== qrSeq) return
+    if (!(cf && cf.ok && cf.data)) { _qrStatus('确认登录失败: ' + ((cf && cf.error) || '未知')); qrBusy.value = false; return }
+    const cfa = cf.data
+    const openid = cfa.openid || cfa.OpenID || cfa.ref
     if (!openid) { _qrStatus('未获取到 openid'); qrBusy.value = false; return }
 
     // 4. getcode
-    const gc = (await api.post('/api/yyb/getcode', { openid })).data
+    const gc = (await api.post('/api/yyb/getcode', { openid }, { timeout: 60000 })).data
     const code = gc && gc.data && gc.data.code
-    if (!code) { _qrStatus('获取 code 失败'); qrBusy.value = false; return }
+    if (!code) { _qrStatus('获取 code 失败: ' + ((gc && gc.error) || '未知')); qrBusy.value = false; return }
 
     // 5. 添加账号
     const platform = (cfa && cfa.platform) || 'wx'
@@ -151,7 +173,11 @@ async function startQrLogin() {
       stopQr(); sheet.value = ''; app.success('扫码登录成功'); location.reload()
     }
     else { _qrStatus('添加账号失败: ' + (add.error || '未知')) }
-  } catch (e) { qrBusy.value = false; _qrStatus('扫码登录失败'); console.error(e) }
+  } catch (e) {
+    qrBusy.value = false
+    _qrStatus('扫码登录失败: ' + _qrErr(e, '未知错误'))
+    console.error(e)
+  }
 }
 
 /* ---------- 掉线自动重连（扫码弹窗内 rc-panel） ---------- */

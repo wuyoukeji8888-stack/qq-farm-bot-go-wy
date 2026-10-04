@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, computed, ref } from 'vue'
+import { onMounted, onErrorCaptured, watch, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAccountStore } from '@/stores/account'
@@ -60,8 +60,21 @@ onMounted(async () => {
   else setTimeout(preload, 2500)
 })
 
+const pageErr = ref('')
+watch(() => route.path, () => { pageErr.value = '' })
+onErrorCaptured((err) => {
+  pageErr.value = err && err.message ? err.message : String(err)
+  console.error('tab 页面错误', err)
+  return false
+})
+
 function go(to) {
-  router.push(to)
+  if (route.path === to) return
+  pageErr.value = ''
+  router.push(to).catch((e) => {
+    console.error('tab 跳转失败', e)
+    app.error('页面打开失败')
+  })
 }
 // 右上角切换账号：弹出 bottom sheet，点击账号热切换（不整页刷新，广播事件让各页面重拉数据）
 const showAcc = ref(false)
@@ -109,7 +122,12 @@ function pickAccount(id) {
         </div>
       </header>
 
-      <router-view />
+      <div v-if="pageErr" class="placeholder">
+        <div class="big">⚠️</div>
+        <h3>页面加载失败</h3>
+        <p>{{ pageErr }}</p>
+      </div>
+      <router-view v-else />
     </div>
 
     <!-- 底部 dock（移动端 <920px 显示，沿用 HTML 原 .dock 居中悬浮药丸样式） -->
@@ -124,9 +142,9 @@ function pickAccount(id) {
       </button>
     </nav>
 
-    <!-- 切换账号 bottom sheet -->
-    <div class="sheet-mask" :class="{ show: showAcc }" @click="showAcc = false"></div>
-    <div class="sheet" :class="{ show: showAcc }">
+    <!-- 切换账号 bottom sheet：未打开时不挂载，避免透明遮罩挡住底部 dock -->
+    <div v-if="showAcc" class="sheet-mask show" @click="showAcc = false"></div>
+    <div v-if="showAcc" class="sheet show">
       <div class="handle"></div>
       <h3>切换账号</h3>
       <p class="sub">选择要登录的农场账号</p>

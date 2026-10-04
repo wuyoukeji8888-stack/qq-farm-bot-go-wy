@@ -340,9 +340,9 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- 生涯统计弹窗 -->
-  <div class="sheet-mask" :class="{ show: careerOpen }" @click="careerOpen = false"></div>
-  <div class="sheet career-sheet" :class="{ show: careerOpen }">
+  <!-- 生涯统计弹窗：未打开时不挂载，避免透明遮罩挡住底部 dock -->
+  <div v-if="careerOpen" class="sheet-mask show" @click="careerOpen = false"></div>
+  <div v-if="careerOpen" class="sheet career-sheet show">
     <button class="career-x" aria-label="关闭" @click="careerOpen = false">✕</button>
     <template v-if="!careerLoading && career">
       <!-- 头部 -->
@@ -410,9 +410,7 @@ onUnmounted(() => {
 .lg-type { flex: none; font-size: 11px; color: var(--muted); min-width: 48px; }
 .lg-msg { flex: 1; min-width: 0; color: var(--foreground); }
 .lg-time { flex: none; color: var(--muted); font-size: 11px; }
-.sheet-mask, .sheet.show { display: block; }
-.sheet-mask { display: none; }
-.sheet { display: none; }
+
 
 /* ===== 生涯统计弹窗 ===== */
 .career-sheet { width: min(520px, calc(100vw - 32px)); max-width: 92vw; max-height: 82dvh; overflow-y: auto; padding: 20px; scrollbar-width: none; }

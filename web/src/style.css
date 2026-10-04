@@ -344,7 +344,8 @@ body{
   border:1px solid var(--border);
   border-radius:28px;
   box-shadow:var(--shadow);
-  z-index:20;
+  z-index:50;
+  pointer-events:auto;
 }
 .dock button{
   position:relative; flex:0 0 auto;

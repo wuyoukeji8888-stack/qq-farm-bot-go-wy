@@ -32,8 +32,12 @@ const api = axios.create({
 // 使用 Authorization: Bearer <token> 进行用户鉴权
 api.interceptors.request.use((config) => {
   const token = getToken()
-  if (token) config.headers['Authorization'] = 'Bearer ' + token
+  if (token) {
+    config.headers['Authorization'] = 'Bearer ' + token
+    config.headers['x-user-token'] = token
+  }
   if (currentAccountId) {
+    config.headers['x-account-id'] = currentAccountId
     config.params = { ...(config.params || {}), accountId: currentAccountId }
   }
   return config
