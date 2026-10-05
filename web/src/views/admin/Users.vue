@@ -8,8 +8,10 @@ const app = useAppStore()
 const router = useRouter()
 
 const users = ref([])
+const unboundAccounts = ref([])
 const loading = ref(false)
 const selected = ref([])
+const expanded = ref(null)
 const editing = ref(null)
 const editLimit = ref(2)
 const editDays = ref(30)
@@ -23,6 +25,7 @@ async function loadUsers() {
   try {
     const { data } = await api.get('/api/admin/users')
     users.value = data.users || []
+    unboundAccounts.value = data.unboundAccounts || []
   } catch (e) {
     app.error(e.response?.data?.error || '加载失败')
   } finally {
@@ -73,6 +76,19 @@ function formatTime(ms) {
   if (!ms) return '-'
   const d = new Date(ms)
   return d.toLocaleString('zh-CN')
+}
+
+function platformLabel(p) {
+  if (p === 'wx') return '微信'
+  return 'QQ'
+}
+
+function accountStatus(a) {
+  return a.status === 'online' ? '在线' : '离线'
+}
+
+function toggleAccounts(username) {
+  expanded.value = expanded.value === username ? null : username
 }
 
 function remainingDays(user) {
@@ -161,6 +177,21 @@ onMounted(loadUsers)
                 账号限制: {{ user.accountLimit === -1 ? '无限' : user.accountLimit }} |
                 到期: {{ user.isPermanent ? '永久' : formatTime(user.expiresAt || (user.card && user.card.expiresAt)) }}
               </div>
+              <button style="margin-top:8px;padding:4px 8px;border-radius:6px;background:transparent;border:1px solid var(--border);cursor:pointer;font-size:12px;" @click.stop="toggleAccounts(user.username)">
+                农场登录 {{ (user.accounts || []).length }} {{ expanded === user.username ? '收起' : '查看' }}
+              </button>
+              <div v-if="expanded === user.username" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+                <div v-if="!(user.accounts && user.accounts.length)" style="font-size:12px;color:var(--muted);">暂无农场登录</div>
+                <div v-for="acc in (user.accounts || [])" :key="acc.id" style="padding:8px;border-radius:8px;border:1px solid var(--border);font-size:12px;line-height:1.6;">
+                  <div style="font-weight:600;">{{ acc.name || '未命名' }} · {{ accountStatus(acc) }}</div>
+                  <div>渠道：{{ platformLabel(acc.platform) }}</div>
+                  <div v-if="acc.qq">QQ：{{ acc.qq }}</div>
+                  <div v-if="acc.uin">UIN：{{ acc.uin }}</div>
+                  <div v-if="acc.gid">GID：{{ acc.gid }}</div>
+                  <div v-if="acc.openId" style="word-break:break-all;">OpenID：{{ acc.openId }}</div>
+                  <div>创建：{{ acc.createdAt || '-' }}</div>
+                </div>
+              </div>
               <div v-if="editing === user.username && user.role !== 'admin'" style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
                 <div style="display:flex;gap:8px;">
                   <input v-model.number="editLimit" type="number" class="field" placeholder="账号上限" style="flex:1" :disabled="editUnlimited">
@@ -186,6 +217,23 @@ onMounted(loadUsers)
               <button style="padding:4px 8px;border-radius:6px;background:transparent;border:1px solid var(--border);cursor:pointer;font-size:12px;" @click="startEdit(user)">编辑</button>
               <button style="padding:4px 8px;border-radius:6px;background:#ef4444;color:#fff;border:none;cursor:pointer;font-size:12px;" @click="deleteUsers([user.username])">删除</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="unboundAccounts.length" style="margin-top:18px;">
+        <div class="sec-title" style="margin:2px 0 12px">
+          <span>未绑定农场登录（{{ unboundAccounts.length }}）</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div v-for="acc in unboundAccounts" :key="acc.id" style="padding:12px;border-radius:10px;background:var(--card-strong);border:1px solid var(--border);font-size:12px;line-height:1.6;">
+            <div style="font-weight:600;">{{ acc.name || '未命名' }} · {{ accountStatus(acc) }}</div>
+            <div>渠道：{{ platformLabel(acc.platform) }}</div>
+            <div v-if="acc.qq">QQ：{{ acc.qq }}</div>
+            <div v-if="acc.uin">UIN：{{ acc.uin }}</div>
+            <div v-if="acc.gid">GID：{{ acc.gid }}</div>
+            <div v-if="acc.openId" style="word-break:break-all;">OpenID：{{ acc.openId }}</div>
+            <div>创建：{{ acc.createdAt || '-' }}</div>
           </div>
         </div>
       </div>

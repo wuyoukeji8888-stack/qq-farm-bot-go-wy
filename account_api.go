@@ -39,9 +39,6 @@ func accountOwner(accountID string) string {
 	return acc.Username
 }
 
-// isAccountAccessible checks whether user u can access accountID.
-// admin/super_admin can access any account; regular users can access their own accounts
-// or unbound accounts (Username == "") to allow claiming.
 func isAdminUser(u *models.User) bool {
 	return u != nil && (u.Role == "admin" || u.Role == "super_admin")
 }
@@ -49,9 +46,6 @@ func isAdminUser(u *models.User) bool {
 func isAccountAccessible(u *models.User, accountID string) bool {
 	if u == nil || accountID == "" {
 		return false
-	}
-	if isAdminUser(u) {
-		return true
 	}
 	acc := models.GetAccountByID(accountID)
 	if acc == nil {
@@ -64,10 +58,27 @@ func userVisibleAccounts(u *models.User) []models.Account {
 	if u == nil {
 		return nil
 	}
-	if isAdminUser(u) {
-		return models.GetAccounts()
-	}
 	return models.GetAccountsByUsername(u.Username)
+}
+
+func accountLoginSummary(acc models.Account) map[string]interface{} {
+	status := "offline"
+	if c := clientPool.cached(acc.ID); c != nil && !c.IsClosed() {
+		status = "online"
+	}
+	return map[string]interface{}{
+		"id":        acc.ID,
+		"name":      acc.Name,
+		"username":  acc.Username,
+		"platform":  acc.Platform,
+		"qq":        acc.QQ,
+		"uin":       acc.UIN,
+		"gid":       acc.GID,
+		"openId":    acc.OpenID,
+		"status":    status,
+		"createdAt": acc.CreatedAt,
+		"updatedAt": acc.UpdatedAt,
+	}
 }
 
 func firstOwnedAccountID(u *models.User) string {
@@ -104,7 +115,7 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		accounts := userVisibleAccounts(u)
-		if len(accounts) == 0 && !isAdminUser(u) {
+		if len(accounts) == 0 {
 			claimID := r.URL.Query().Get("accountId")
 			if claimID == "" || claimID == "default" {
 				claimID = models.GetActiveAccountID()
@@ -209,7 +220,7 @@ func handleAccounts(w http.ResponseWriter, r *http.Request) {
 				}
 				acc.Username = ownerUsername
 			}
-		} else if ownerUsername != "" && acc.Username != ownerUsername && !isAdminUser(currentUser(r)) {
+		} else if ownerUsername != "" && acc.Username != ownerUsername {
 			writeError(w, 403, "该农场账号已绑定其他用户")
 			return
 		}

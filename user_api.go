@@ -338,7 +338,7 @@ func requireAdminUser(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	u := models.GetUserByToken(token)
-	if u == nil || u.Role != "admin" {
+	if !isAdminUser(u) {
 		writeError(w, http.StatusForbidden, "请联系管理员")
 		return false
 	}
@@ -447,6 +447,19 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		accountsByUser := map[string][]map[string]interface{}{}
+		var unbound []map[string]interface{}
+		for _, acc := range models.GetAccounts() {
+			info := accountLoginSummary(acc)
+			if acc.Username == "" {
+				unbound = append(unbound, info)
+				continue
+			}
+			accountsByUser[acc.Username] = append(accountsByUser[acc.Username], info)
+		}
+		if unbound == nil {
+			unbound = []map[string]interface{}{}
+		}
 		users := models.GetAllUsers()
 		var result []map[string]interface{}
 		for _, u := range users {
@@ -458,6 +471,10 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			if expiresAt == 0 && u.Card != nil {
 				expiresAt = u.Card.ExpiresAt
 			}
+			accs := accountsByUser[u.Username]
+			if accs == nil {
+				accs = []map[string]interface{}{}
+			}
 			result = append(result, map[string]interface{}{
 				"username":     u.Username,
 				"role":         u.Role,
@@ -466,9 +483,10 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 				"expiresAt":    expiresAt,
 				"isPermanent":  u.IsPermanent || (u.Card != nil && u.Card.IsPermanent),
 				"createdAt":    u.CreatedAt,
+				"accounts":     accs,
 			})
 		}
-		writeJSON(w, map[string]interface{}{"ok": true, "users": result})
+		writeJSON(w, map[string]interface{}{"ok": true, "users": result, "unboundAccounts": unbound})
 	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		var body struct {
 			Username     string `json:"username"`
