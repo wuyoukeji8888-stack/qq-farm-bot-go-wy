@@ -205,10 +205,10 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"ok": true, "account": accountID, "now": now, "scope": scope, "items": out})
 }
 
-// expiredActivityID 已结束的硬编码活动（鹊桥 / 雨落 / 青梅 / 公益小红花），进行中列表不再展示。
+// expiredActivityID 已结束的硬编码活动（鹊桥 / 雨落 / 青梅 / 公益小红花 / 快乐不独享），进行中列表不再展示。
 func expiredActivityID(id int64) bool {
 	switch id / 100 {
-	case 20260818, 20260703, 20260812, 20260909:
+	case 20260818, 20260703, 20260812, 20260909, 20260925:
 		return true
 	}
 	return false
@@ -2190,7 +2190,7 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 			if act.ID != reqActivityID && act.ID-act.ID%100 != reqRoot && p != reqActivityID && p != reqRoot {
 				continue
 			}
-		} else if p != actAutumnPrayerPrefix && p != actJoySharePrefix {
+		} else if p != actAutumnPrayerPrefix {
 			continue
 		}
 		rootID := act.ID - act.ID%100
@@ -2211,6 +2211,9 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 
 	for _, root := range targetRoots {
 		rootID := root.ID
+		if rootID/100 == actJoySharePrefix {
+			continue
+		}
 		result := map[string]interface{}{
 			"activityId": rootID,
 			"title":      root.Title,
@@ -2284,9 +2287,6 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 		walk(rootNode)
 		if rootID/100 == actAutumnPrayerPrefix {
 			tryClaim(actWishSignID, "秋祈良愿")
-		}
-		if rootID/100 == actJoySharePrefix {
-			tryClaim(rootID+1, root.Title)
 		}
 		actCacheDel(actGroupCacheKey(accountID, rootID))
 

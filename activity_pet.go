@@ -226,13 +226,14 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 	ffs := readActFields(actBytes(fs, 2))
 	huntFs := readActFields(actBytes(fs, 3))
 
+	_, feedUsed, _ := petHuntRemainUsed(actNum(ffs, 1), actNum(ffs, 2), petDailyFeedLimit)
 	nur := PetNurture{
 		Initialized: actNum(nfs, 1) != 0, // cg_played
 		Stage:       actNum(nfs, 4),
 		Growth:      actNum(nfs, 3),
 		AdultGrowth: petAdultGrowth,
 		DogGranted:  actNum(nfs, 6) != 0,
-		FeedCount:   actNum(ffs, 1),
+		FeedCount:   feedUsed,
 		FeedLimit:   petDailyFeedLimit,
 		FeedCost:    petFeedCost,
 	}
@@ -241,8 +242,7 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 
 	bag := petReadItems(ctx, accountID, petFeedItemID, petStarItemID)
 	nur.CakeHave = bag[petFeedItemID]
-	nur.CanFeed = st.Active && !growthAdult &&
-		nur.FeedCount < nur.FeedLimit && nur.CakeHave >= petFeedCost
+	nur.CanFeed = st.Active && nur.FeedCount < nur.FeedLimit && nur.CakeHave >= petFeedCost
 
 	st.Cake = bag[petFeedItemID]
 	st.Star = bag[petStarItemID]

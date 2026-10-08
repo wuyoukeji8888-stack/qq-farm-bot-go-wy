@@ -5,11 +5,11 @@ import "testing"
 func TestPetHuntRemainUsed(t *testing.T) {
 	const limit int64 = 10
 	cases := []struct {
-		name           string
-		f1, f2         int64
-		wantRemain     int64
-		wantUsed       int64
-		wantCanDraw    bool
+		name        string
+		f1, f2      int64
+		wantRemain  int64
+		wantUsed    int64
+		wantCanDraw bool
 	}{
 		{"remaining full", 10, 0, 10, 0, true},
 		{"remaining nine", 9, 0, 9, 1, true},
@@ -26,5 +26,13 @@ func TestPetHuntRemainUsed(t *testing.T) {
 		if (remain > 0) != c.wantCanDraw {
 			t.Fatalf("%s: canDraw=%v want %v", c.name, remain > 0, c.wantCanDraw)
 		}
+	}
+}
+
+func TestPetFeedRemainUsed(t *testing.T) {
+	const limit int64 = 16
+	remain, used, _ := petHuntRemainUsed(16, 0, limit)
+	if remain != 16 || used != 0 {
+		t.Fatalf("feed remaining full: remain/used=%d/%d want 16/0", remain, used)
 	}
 }

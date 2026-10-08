@@ -583,7 +583,7 @@ function honghuaClaim(kind, tier) { honghuaDo('claim', Object.assign({ kind }, t
 const curPanel = computed(() => panels.value[panelIdx.value] || null)
 
 // 手动领取：当前活动组是否为目标活动
-const AUTO_CLAIM_PREFIXES = [20260924, 20260925] // 秋祈良愿/快乐不独享
+const AUTO_CLAIM_PREFIXES = [20260924] // 秋祈良愿
 const isAutoClaimGroup = computed(() => {
   if (!groups.value || groupIdx.value < 0 || groupIdx.value >= groups.value.length) return false
   const g = groups.value[groupIdx.value]
@@ -672,7 +672,7 @@ async function loadActivity(retries = 4) {
       seenRoot[root] = true
       gs.push({
         id: root,
-        title: i.title || (prefix === 20260924 ? '秋祈良愿' : '快乐不独享'),
+        title: i.title || '秋祈良愿',
         start_time: i.start_time,
         end_time: i.end_time,
         group: true,
@@ -682,11 +682,11 @@ async function loadActivity(retries = 4) {
     const nowSec = Date.now() / 1000
     const expiredPrefix = (id) => {
       const s = String(id)
-      return s.indexOf('20260818') === 0 || s.indexOf('20260703') === 0 || s.indexOf('20260812') === 0 || s.indexOf('20260909') === 0
+      return s.indexOf('20260818') === 0 || s.indexOf('20260703') === 0 || s.indexOf('20260812') === 0 || s.indexOf('20260909') === 0 || s.indexOf('20260925') === 0
     }
     const expiredTitle = (t) => {
       const s = t || ''
-      return s.indexOf('鹊') >= 0 || s.indexOf('雨落') >= 0 || s.indexOf('小红花') >= 0 || s.indexOf('公益') >= 0 || s.indexOf('青梅') >= 0 || s.indexOf('青酿') >= 0
+      return s.indexOf('鹊') >= 0 || s.indexOf('雨落') >= 0 || s.indexOf('小红花') >= 0 || s.indexOf('公益') >= 0 || s.indexOf('青梅') >= 0 || s.indexOf('青酿') >= 0 || s.indexOf('快乐') >= 0
     }
     gs = gs.filter(g => {
       if (expiredPrefix(g.id) || expiredTitle(g.title)) return false
@@ -764,6 +764,18 @@ async function renderPanel(p) {
 }
 
 /* ---------- 比熊之家 / 爪印手记（S3 萌宠成长日记，同一份数据） ---------- */
+function petCanFeed(nur) {
+  if (!nur) return false
+  if (n(nur.feedCount) >= n(nur.feedLimit)) return false
+  if (n(nur.cakeHave) < n(nur.feedCost)) return false
+  return true
+}
+function petFeedTitle(nur) {
+  if (petCanFeed(nur)) return ''
+  if (n(nur.feedCount) >= n(nur.feedLimit)) return '今日投喂次数已满'
+  if (n(nur.cakeHave) < n(nur.feedCost)) return '元气糕不足 ' + n(nur.feedCost) + '，先种活动作物'
+  return ''
+}
 async function loadPet() {
   const a = acc(); if (!a) return
   petState.err = ''
@@ -1094,7 +1106,7 @@ onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) }
         <div class="act-actions">
           <button v-if="!petState.data.nurture.initialized" class="act-btn" :disabled="petBusy" @click="petOperate('initialize')">🐾 领养比熊</button>
           <template v-else>
-            <button class="act-btn" :class="{ disabled: !petState.data.nurture.canFeed }" :disabled="!petState.data.nurture.canFeed || petBusy" :title="petState.data.nurture.canFeed ? '' : '元气糕不足 ' + n(petState.data.nurture.feedCost) + '，先种活动作物'" @click="petOperate('feed')">🍰 投喂元气糕</button>
+            <button class="act-btn" :class="{ disabled: !petCanFeed(petState.data.nurture) }" :disabled="!petCanFeed(petState.data.nurture) || petBusy" :title="petFeedTitle(petState.data.nurture)" @click="petOperate('feed')">🍰 投喂元气糕</button>
             <button v-if="petState.data.nurture.adult && !petState.data.nurture.dogGranted" class="act-btn" :disabled="petBusy" @click="petOperate('claimDog')">🎁 领取永久比熊</button>
             <button v-if="petState.data.nurture.adult" class="act-btn" :class="{ disabled: !petState.data.hunt.canDraw }" :disabled="!petState.data.hunt.canDraw || petBusy" @click="petOperate('draw')">⛏️ 去寻宝（今日 {{ n(petState.data.hunt.count) }}/{{ n(petState.data.hunt.limit) }}）</button>
           </template>
