@@ -246,14 +246,8 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 	st.Cake = bag[petFeedItemID]
 	st.Star = bag[petStarItemID]
 	st.Nurture = nur
-	st.Hunt = PetHunt{
-		Count:   actNum(huntFs, 1),
-		Total:   actNum(huntFs, 2),
-		StarAll: actNum(huntFs, 3),
-		Limit:   petDailyTreasureLimit,
-		Cost:    petFeedCost,
-	}
-	st.Hunt.CanDraw = st.Active && nur.Adult && st.Hunt.Count < st.Hunt.Limit && st.Cake >= petFeedCost
+	st.Hunt = petParseHunt(huntFs)
+	st.Hunt.CanDraw = st.Active && nur.Adult && st.Hunt.CanDraw && st.Cake >= petFeedCost
 	st.Stories = petParseStories(petRaw)
 	for _, s := range st.Stories {
 		if s.Unlocked {
@@ -261,6 +255,60 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 		}
 	}
 	return st
+}
+
+// petParseHunt 解析寻宝块。
+// CDN ActivityPetTreasureHuntBase.daily_treasure_limit=10。
+// field1 是剩余次数或累计次数，不能直接当今日已用：剩余=10 会被误判为已满额。
+func petParseHunt(huntFs []actField) PetHunt {
+	f1 := actNum(huntFs, 1)
+	f2 := actNum(huntFs, 2)
+	h := PetHunt{
+		StarAll: actNum(huntFs, 3),
+		Limit:   petDailyTreasureLimit,
+		Cost:    petFeedCost,
+	}
+	remain, used, total := petHuntRemainUsed(f1, f2, h.Limit)
+	h.Count = used
+	h.Total = total
+	h.CanDraw = remain > 0
+	return h
+}
+
+func petHuntRemainUsed(f1, f2, limit int64) (remain, used, total int64) {
+	switch {
+	case f1 == 0 && f2 == 0:
+		remain = limit
+	case f1 > limit && f2 <= limit:
+		total = f1
+		if f2 == 0 {
+			remain = limit
+		} else {
+			remain = f2
+		}
+		used = limit - remain
+	case f2 > limit:
+		total = f2
+		remain = f1
+		if remain > limit {
+			remain = limit
+		}
+		used = limit - remain
+	default:
+		remain = f1
+		total = f2
+		used = limit - remain
+	}
+	if remain < 0 {
+		remain = 0
+	}
+	if used < 0 {
+		used = 0
+	}
+	if used > limit {
+		used = limit
+	}
+	return remain, used, total
 }
 
 // petClaimStory 领取一篇爪印手记。扩展字段按 cmd+99 / cmd+100 探测，命中「活动参数错误」则换字段重试。

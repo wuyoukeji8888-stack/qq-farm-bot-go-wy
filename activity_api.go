@@ -82,7 +82,8 @@ const (
 	actAutumnPrayerPrefix = 20260924   // 秋祈良愿前缀
 	actJoyShareRoot       = 2026092500 // 快乐不独享根节点
 	actJoySharePrefix     = 20260925   // 快乐不独享前缀
-	actManualClaimCmd     = 1          // 手动领取默认 cmd（待确认，先用 1 兜底）
+	actWishSignID         = 2026092401 // 秋祈良愿求签节点（CDN ActivityWishSignBase）
+	actManualClaimCmd     = 1          // 手动领取默认 cmd（cmd=0 时按探测列表）
 )
 
 // ----- List：活动列表 + 时间过滤 -----
@@ -1961,41 +1962,93 @@ func actClaimErrIdempotent(es string) bool {
 	return strings.Contains(es, "无可领取") || strings.Contains(es, "已领取") || strings.Contains(es, "重复") || strings.Contains(es, "已领")
 }
 
+func actClaimErrSkipCmd(es string) bool {
+	return strings.Contains(es, "活动参数错误") || strings.Contains(es, "无效操作") || strings.Contains(es, "未开始")
+}
+
+func actNodeShouldClaim(n *ActivityNode, rootID int64) bool {
+	if n == nil || n.Info == nil {
+		return false
+	}
+	id := n.Info.ID
+	if id <= 0 || id == rootID || id%100 == 0 {
+		return false
+	}
+	switch n.Info.Type {
+	case 3, 18:
+		return false
+	}
+	switch n.Info.Status {
+	case 3, 5:
+		return false
+	}
+	return true
+}
+
+func actWishSignExt(chooseIDs ...int64) []byte {
+	sub := proto.NewBuilder()
+	for i, id := range chooseIDs {
+		sub.FieldInt64(i+1, id)
+	}
+	return sub.Bytes()
+}
+
+func actWishSignExtRepeat(chooseIDs ...int64) []byte {
+	sub := proto.NewBuilder()
+	for _, id := range chooseIDs {
+		sub.FieldInt64(1, id)
+	}
+	return sub.Bytes()
+}
+
 // actManualClaimOperate 领取指定活动节点。cmd=0 时按常见值探测；「已领取」类错误视为成功。
 func actManualClaimOperate(ctx context.Context, accountID string, activityID, cmd int64) ([]byte, int64, error) {
 	cmds := []int64{cmd}
 	if cmd == 0 {
-		cmds = []int64{4, 38, 36, 21, 25, 1}
+		cmds = []int64{21, 4, 25, 1, 38, 36}
 	}
 	var lastCmd int64
 	var lastErr error
 	for _, tryCmd := range cmds {
 		lastCmd = tryCmd
-		body, err := actOperateWithEmptyExt(ctx, accountID, activityID, tryCmd)
-		if err == nil {
-			return body, tryCmd, nil
+		attempts := [][]byte{nil}
+		if activityID == actWishSignID {
+			attempts = [][]byte{actWishSignExt(1, 2, 3), actWishSignExtRepeat(1, 2, 3), nil}
 		}
-		es := actErrMsg(err)
-		if actClaimErrIdempotent(es) {
-			return nil, tryCmd, nil
+		for _, ext := range attempts {
+			var (
+				body []byte
+				err  error
+			)
+			if len(ext) == 0 {
+				body, err = actOperateWithEmptyExt(ctx, accountID, activityID, tryCmd)
+			} else {
+				b := proto.NewBuilder()
+				b.FieldInt64(1, activityID)
+				b.FieldInt64(2, tryCmd)
+				body, err = rpcRequest(ctx, accountID, actSvc, "Operate", honghuaAppendMsg(b.Bytes(), int(tryCmd)+honghuaExtBase, ext), 15*time.Second)
+			}
+			if err == nil {
+				return body, tryCmd, nil
+			}
+			es := actErrMsg(err)
+			if actClaimErrIdempotent(es) {
+				return nil, tryCmd, nil
+			}
+			lastErr = err
+			if actClaimErrSkipCmd(es) {
+				continue
+			}
 		}
-		lastErr = err
 	}
 	return nil, lastCmd, lastErr
 }
 
 // ----- 手动领取：秋祈良愿 / 快乐不独享 -----
 //
-// 逻辑：
-//   1. 调用 ActivityService.List 找到 ID 前缀为 20260924 或 20260925 的活动组
-//   2. 对每个匹配的活动组调用 GetGroup 获取节点树
-//   3. 递归遍历节点，对 status=2（可领取）的子节点调用 Operate 领取
-//   4. 收集所有领取成功的奖励返回
-//
-// 请求参数：
-//   accountId  必填，账号 ID
-//   activityId 可选，指定某个活动组 ID（如 2026092400），不传则自动检测
-//   cmd        可选，Operate 命令号，默认 actManualClaimCmd
+// 秋祈良愿（2026092401）是 WishSign 求签：每日选 3 个方向后领奖励。
+// 快乐不独享（20260925xx）按子节点探测领取。head.status 常为 0（与青梅相同），不能只认 status=2。
+// cmd=0 时按 21/4/25/1 探测；已领取类错误视为成功。
 func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	accountID := resolveAccountIDWithOwner(r, q.Get("accountId"))
@@ -2044,8 +2097,6 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. 对每个目标活动组 GetGroup + 遍历节点 Operate 领取
-	var allRewards []map[string]interface{}
 	var activityResults []map[string]interface{}
 
 	for _, root := range targetRoots {
@@ -2074,46 +2125,58 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 遍历子节点，对可领取的调用 Operate
 		var claimed []map[string]interface{}
-		var walk func(n *ActivityNode, parentID int64)
-		walk = func(n *ActivityNode, parentID int64) {
+		tried := map[int64]bool{}
+		tryClaim := func(id int64, title string) {
+			if id <= 0 || id == rootID || tried[id] {
+				return
+			}
+			tried[id] = true
+			obBody, usedCmd, opErr := actManualClaimOperate(ctx, accountID, id, cmd)
+			if opErr != nil {
+				result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Operate(id=%d,cmd=%d):%s", id, usedCmd, actErrMsg(opErr)))
+				return
+			}
+			if obBody == nil {
+				return
+			}
+			rewards := parseActRewardField(obBody, 126)
+			if len(rewards) == 0 {
+				for _, r := range actBytesAll(readActFields(obBody), 1) {
+					it := parseItem(r)
+					if it != nil {
+						rewards = append(rewards, map[string]interface{}{"id": it.ItemID, "count": it.Count})
+					}
+				}
+			}
+			claimed = append(claimed, map[string]interface{}{
+				"id":      id,
+				"title":   title,
+				"rewards": rewards,
+			})
+		}
+		var walk func(n *ActivityNode)
+		walk = func(n *ActivityNode) {
 			if n == nil || n.Info == nil {
 				return
 			}
-			if n.Info.ID != rootID && n.Info.Status == 2 {
-				obBody, usedCmd, opErr := actManualClaimOperate(ctx, accountID, n.Info.ID, cmd)
-				if opErr != nil {
-					result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Operate(id=%d,cmd=%d):%s", n.Info.ID, usedCmd, actErrMsg(opErr)))
-				} else if obBody != nil {
-					rewards := parseActRewardField(obBody, 126)
-					if len(rewards) == 0 {
-						for _, r := range actBytesAll(readActFields(obBody), 1) {
-							it := parseItem(r)
-							if it != nil {
-								rewards = append(rewards, map[string]interface{}{"id": it.ItemID, "count": it.Count})
-							}
-						}
-					}
-					claimed = append(claimed, map[string]interface{}{
-						"id":      n.Info.ID,
-						"title":   n.Info.Title,
-						"rewards": rewards,
-					})
-				}
+			if n.Info.Status == 2 && actNodeShouldClaim(n, rootID) {
+				tryClaim(n.Info.ID, n.Info.Title)
 			}
 			for _, ch := range n.Children {
-				walk(ch, n.Info.ID)
+				walk(ch)
 			}
 		}
-		walk(rootNode, 0)
+		walk(rootNode)
+		if rootID/100 == actAutumnPrayerPrefix {
+			tryClaim(actWishSignID, "秋祈良愿")
+		}
+		if rootID/100 == actJoySharePrefix {
+			tryClaim(rootID+1, root.Title)
+		}
+		actCacheDel(actGroupCacheKey(accountID, rootID))
 
 		result["claimed"] = claimed
-		allRewards = append(allRewards, map[string]interface{}{
-			"activityId": rootID,
-			"title":      root.Title,
-			"claimed":    claimed,
-		})
 		activityResults = append(activityResults, result)
 	}
 

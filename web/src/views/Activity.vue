@@ -955,7 +955,7 @@ onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) }
         <h4>🎁 {{ currentGroupTitle }}</h4>
         <span class="act-badge">手动领取</span>
       </div>
-      <div class="act-hint">点按下方按钮自动领取该活动全部可领奖励</div>
+      <div class="act-hint">点按下方按钮领取该活动可领奖励（秋祈良愿会自动求签）</div>
       <div class="act-actions">
         <button class="act-btn" :disabled="loading" @click="autoClaimActivity()">{{ loading ? '领取中…' : '一键领取全部' }}</button>
       </div>
