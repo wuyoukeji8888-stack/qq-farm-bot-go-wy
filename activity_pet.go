@@ -236,11 +236,12 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 		FeedLimit:   petDailyFeedLimit,
 		FeedCost:    petFeedCost,
 	}
-	nur.Adult = nur.Stage == 2
+	growthAdult := nur.Growth >= petAdultGrowth
+	nur.Adult = growthAdult || (nur.Stage == 2 && nur.Growth > 0)
 
 	bag := petReadItems(ctx, accountID, petFeedItemID, petStarItemID)
 	nur.CakeHave = bag[petFeedItemID]
-	nur.CanFeed = st.Active && !nur.Adult && nur.Stage == 1 &&
+	nur.CanFeed = st.Active && !growthAdult &&
 		nur.FeedCount < nur.FeedLimit && nur.CakeHave >= petFeedCost
 
 	st.Cake = bag[petFeedItemID]

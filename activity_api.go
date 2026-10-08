@@ -139,7 +139,7 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 		writeJSONMap(w, "ok", false, "error", actErrMsg(err))
 		return
 	}
-	items := ParseActivityList(body)
+	items := actEnsureGroupRoots(ParseActivityList(body))
 	now := time.Now().Unix()
 	scope = r.URL.Query().Get("scope")
 	if scope == "" {
@@ -150,17 +150,21 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 	// 因此先收集：当前在期(on)的子活动，再据此判定组根是否 ongoing。
 	onChild := map[int64]bool{}
 	for _, it := range items {
-		if it.ID%100 != 0 && it.StartTime > 0 && it.StartTime <= now && it.EndTime >= now {
+		if it == nil || it.ID%100 == 0 {
+			continue
+		}
+		inWindow := it.StartTime > 0 && it.StartTime <= now && it.EndTime >= now
+		sentinel := it.StartTime <= 0 || it.EndTime <= 0
+		if inWindow || (actManualClaimPrefix(it.ID) && sentinel) {
 			onChild[it.ID-it.ID%100] = true
 		}
 	}
 	itemOngoing := func(it *ActivityInfo) bool {
+		if it.ID%100 == 0 && onChild[it.ID] {
+			return true
+		}
 		if it.StartTime > 0 && it.EndTime > 0 {
 			return it.StartTime <= now && it.EndTime >= now
-		}
-		// 哨兵时间：仅在期当它是一个有活跃子活动的组根
-		if it.ID%100 == 0 {
-			return onChild[it.ID]
 		}
 		return false
 	}
@@ -203,6 +207,62 @@ func expiredActivityID(id int64) bool {
 		return true
 	}
 	return false
+}
+
+func actManualClaimPrefix(id int64) bool {
+	p := id / 100
+	return p == actAutumnPrayerPrefix || p == actJoySharePrefix
+}
+
+func actManualGroupTitle(rootID int64, fallback string) string {
+	switch rootID / 100 {
+	case actAutumnPrayerPrefix:
+		return "秋祈良愿"
+	case actJoySharePrefix:
+		return "快乐不独享"
+	}
+	return fallback
+}
+
+// actEnsureGroupRoots List 常只给子节点。前端只展示 group=true 的组根，缺根时从子节点补一条。
+func actEnsureGroupRoots(items []*ActivityInfo) []*ActivityInfo {
+	haveRoot := map[int64]bool{}
+	needRoot := map[int64]bool{}
+	childTitle := map[int64]string{}
+	childStart := map[int64]int64{}
+	childEnd := map[int64]int64{}
+	for _, it := range items {
+		if it == nil || it.ID <= 0 {
+			continue
+		}
+		root := it.ID - it.ID%100
+		if it.ID%100 == 0 {
+			haveRoot[it.ID] = true
+			continue
+		}
+		needRoot[root] = true
+		if it.Title != "" && (childTitle[root] == "" || actManualClaimPrefix(it.ID)) {
+			childTitle[root] = it.Title
+		}
+		if it.StartTime > 0 && (childStart[root] == 0 || it.StartTime < childStart[root]) {
+			childStart[root] = it.StartTime
+		}
+		if it.EndTime > childEnd[root] {
+			childEnd[root] = it.EndTime
+		}
+	}
+	for root := range needRoot {
+		if haveRoot[root] {
+			continue
+		}
+		items = append(items, &ActivityInfo{
+			ID:        root,
+			Title:     actManualGroupTitle(root, childTitle[root]),
+			StartTime: childStart[root],
+			EndTime:   childEnd[root],
+		})
+	}
+	return items
 }
 
 // outItem 活动列表条目（包级：便于 list 缓存反序列化）
@@ -1951,11 +2011,44 @@ func handleDebugItemUse(w http.ResponseWriter, r *http.Request) {
 
 // actOperateWithEmptyExt Operate{f1=id, f2=cmd, f<cmd+99>={}}，空扩展块必带。
 func actOperateWithEmptyExt(ctx context.Context, accountID string, activityID, cmd int64) ([]byte, error) {
+	return actOperateClaim(ctx, accountID, activityID, cmd, int(cmd)+honghuaExtBase, nil)
+}
+
+func actOperateClaim(ctx context.Context, accountID string, activityID, cmd int64, extField int, ext []byte) ([]byte, error) {
 	b := proto.NewBuilder()
 	b.FieldInt64(1, activityID)
 	b.FieldInt64(2, cmd)
-	body := honghuaAppendMsg(b.Bytes(), int(cmd)+honghuaExtBase, nil)
+	body := b.Bytes()
+	if extField > 0 {
+		body = honghuaAppendMsg(body, extField, ext)
+	}
 	return rpcRequest(ctx, accountID, actSvc, "Operate", body, 15*time.Second)
+}
+
+type actClaimAttempt struct {
+	extField int
+	ext      []byte
+}
+
+func actManualClaimAttempts(activityID, cmd int64) []actClaimAttempt {
+	ext99 := int(cmd) + honghuaExtBase
+	ext100 := int(cmd) + honghuaExtBase + 1
+	if activityID == actWishSignID {
+		choose := actWishSignExt(1, 2, 3)
+		repeat := actWishSignExtRepeat(1, 2, 3)
+		return []actClaimAttempt{
+			{ext99, choose}, {ext100, choose},
+			{ext99, repeat}, {ext100, repeat},
+			{ext99, nil}, {ext100, nil},
+			{0, nil},
+		}
+	}
+	// 快乐不独享等领取走商店字段 cmd+100，避开小红花 cmd=36 / cmd+99。
+	return []actClaimAttempt{
+		{ext100, nil},
+		{ext99, nil},
+		{0, nil},
+	}
 }
 
 func actClaimErrIdempotent(es string) bool {
@@ -2005,29 +2098,17 @@ func actWishSignExtRepeat(chooseIDs ...int64) []byte {
 func actManualClaimOperate(ctx context.Context, accountID string, activityID, cmd int64) ([]byte, int64, error) {
 	cmds := []int64{cmd}
 	if cmd == 0 {
-		cmds = []int64{21, 4, 25, 1, 38, 36}
+		cmds = []int64{21, 4, 25, 1}
 	}
 	var lastCmd int64
 	var lastErr error
 	for _, tryCmd := range cmds {
-		lastCmd = tryCmd
-		attempts := [][]byte{nil}
-		if activityID == actWishSignID {
-			attempts = [][]byte{actWishSignExt(1, 2, 3), actWishSignExtRepeat(1, 2, 3), nil}
+		if tryCmd == honghuaLoveCmd || tryCmd == honghuaFundCmd {
+			continue
 		}
-		for _, ext := range attempts {
-			var (
-				body []byte
-				err  error
-			)
-			if len(ext) == 0 {
-				body, err = actOperateWithEmptyExt(ctx, accountID, activityID, tryCmd)
-			} else {
-				b := proto.NewBuilder()
-				b.FieldInt64(1, activityID)
-				b.FieldInt64(2, tryCmd)
-				body, err = rpcRequest(ctx, accountID, actSvc, "Operate", honghuaAppendMsg(b.Bytes(), int(tryCmd)+honghuaExtBase, ext), 15*time.Second)
-			}
+		lastCmd = tryCmd
+		for _, att := range actManualClaimAttempts(activityID, tryCmd) {
+			body, err := actOperateClaim(ctx, accountID, activityID, tryCmd, att.extField, att.ext)
 			if err == nil {
 				return body, tryCmd, nil
 			}
@@ -2040,6 +2121,9 @@ func actManualClaimOperate(ctx context.Context, accountID string, activityID, cm
 				continue
 			}
 		}
+	}
+	if lastErr != nil && actClaimErrSkipCmd(actErrMsg(lastErr)) {
+		return nil, lastCmd, nil
 	}
 	return nil, lastCmd, lastErr
 }
@@ -2134,7 +2218,11 @@ func handleActivityAutoClaim(w http.ResponseWriter, r *http.Request) {
 			tried[id] = true
 			obBody, usedCmd, opErr := actManualClaimOperate(ctx, accountID, id, cmd)
 			if opErr != nil {
-				result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Operate(id=%d,cmd=%d):%s", id, usedCmd, actErrMsg(opErr)))
+				es := actErrMsg(opErr)
+				if actClaimErrSkipCmd(es) {
+					return
+				}
+				result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Operate(id=%d,cmd=%d):%s", id, usedCmd, es))
 				return
 			}
 			if obBody == nil {

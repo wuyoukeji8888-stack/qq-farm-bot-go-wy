@@ -659,7 +659,26 @@ async function loadActivity(retries = 4) {
   try {
     const { data } = await api.get('/api/activity/list', { params: { scope: 'ongoing' } })
     if (!(data && data.ok)) { err.value = (data && data.error) || '加载失败'; groups.value = []; panels.value = []; loading.value = false; return }
-    let gs = (data.items || []).filter(i => i.group)
+    const items = data.items || []
+    let gs = items.filter(i => i.group)
+    const seenRoot = {}
+    gs.forEach((g) => { seenRoot[Math.floor(g.id / 100) * 100] = true })
+    items.forEach((i) => {
+      if (!i || !i.id) return
+      const root = Math.floor(i.id / 100) * 100
+      if (seenRoot[root]) return
+      const prefix = Math.floor(i.id / 100)
+      if (!AUTO_CLAIM_PREFIXES.includes(prefix)) return
+      seenRoot[root] = true
+      gs.push({
+        id: root,
+        title: i.title || (prefix === 20260924 ? '秋祈良愿' : '快乐不独享'),
+        start_time: i.start_time,
+        end_time: i.end_time,
+        group: true,
+        ongoing: true,
+      })
+    })
     const expiredPrefix = (id) => {
       const s = String(id)
       return s.indexOf('20260818') === 0 || s.indexOf('20260703') === 0 || s.indexOf('20260812') === 0 || s.indexOf('20260909') === 0
@@ -1069,12 +1088,10 @@ onUnmounted(() => { window.removeEventListener('account-switched', onSwitched) }
         </div>
         <div class="act-actions">
           <button v-if="!petState.data.nurture.initialized" class="act-btn" :disabled="petBusy" @click="petOperate('initialize')">🐾 领养比熊</button>
-          <template v-else-if="!petState.data.nurture.adult">
-            <button class="act-btn" :class="{ disabled: !petState.data.nurture.canFeed }" :disabled="!petState.data.nurture.canFeed || petBusy" :title="petState.data.nurture.canFeed ? '' : '元气糕不足 ' + n(petState.data.nurture.feedCost) + '，先种活动作物'" @click="petOperate('feed')">🍰 投喂元气糕</button>
-          </template>
           <template v-else>
-            <button v-if="!petState.data.nurture.dogGranted" class="act-btn" :disabled="petBusy" @click="petOperate('claimDog')">🎁 领取永久比熊</button>
-            <button class="act-btn" :class="{ disabled: !petState.data.hunt.canDraw }" :disabled="!petState.data.hunt.canDraw || petBusy" @click="petOperate('draw')">⛏️ 去寻宝（今日 {{ n(petState.data.hunt.count) }}/{{ n(petState.data.hunt.limit) }}）</button>
+            <button class="act-btn" :class="{ disabled: !petState.data.nurture.canFeed }" :disabled="!petState.data.nurture.canFeed || petBusy" :title="petState.data.nurture.canFeed ? '' : '元气糕不足 ' + n(petState.data.nurture.feedCost) + '，先种活动作物'" @click="petOperate('feed')">🍰 投喂元气糕</button>
+            <button v-if="petState.data.nurture.adult && !petState.data.nurture.dogGranted" class="act-btn" :disabled="petBusy" @click="petOperate('claimDog')">🎁 领取永久比熊</button>
+            <button v-if="petState.data.nurture.adult" class="act-btn" :class="{ disabled: !petState.data.hunt.canDraw }" :disabled="!petState.data.hunt.canDraw || petBusy" @click="petOperate('draw')">⛏️ 去寻宝（今日 {{ n(petState.data.hunt.count) }}/{{ n(petState.data.hunt.limit) }}）</button>
           </template>
         </div>
       </template>
