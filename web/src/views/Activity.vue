@@ -679,6 +679,7 @@ async function loadActivity(retries = 4) {
         ongoing: true,
       })
     })
+    const nowSec = Date.now() / 1000
     const expiredPrefix = (id) => {
       const s = String(id)
       return s.indexOf('20260818') === 0 || s.indexOf('20260703') === 0 || s.indexOf('20260812') === 0 || s.indexOf('20260909') === 0
@@ -687,7 +688,11 @@ async function loadActivity(retries = 4) {
       const s = t || ''
       return s.indexOf('鹊') >= 0 || s.indexOf('雨落') >= 0 || s.indexOf('小红花') >= 0 || s.indexOf('公益') >= 0 || s.indexOf('青梅') >= 0 || s.indexOf('青酿') >= 0
     }
-    gs = gs.filter(g => !expiredPrefix(g.id) && !expiredTitle(g.title))
+    gs = gs.filter(g => {
+      if (expiredPrefix(g.id) || expiredTitle(g.title)) return false
+      if (n(g.end_time) > 0 && n(g.end_time) < nowSec) return false
+      return true
+    })
     groups.value = gs
     if (!gs.length) { err.value = '当前没有进行中的活动'; panels.value = []; loading.value = false; return }
     if (groupIdx.value < 0 || groupIdx.value >= gs.length) groupIdx.value = 0

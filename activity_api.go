@@ -106,6 +106,7 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 		if cached, ok := actCacheGet(key, actListTTL); ok {
 			var out []*outItem
 			if err := json.Unmarshal(cached, &out); err == nil {
+				out = filterExpiredOutItems(scope, out)
 				writeJSON(w, map[string]interface{}{"ok": true, "account": accountID, "now": time.Now().Unix(), "scope": scope, "items": out, "cached": true})
 				return
 			}
@@ -125,6 +126,7 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 			if cached, ok := actCacheGet(key, actListTTL); ok {
 				var out []*outItem
 				if err := json.Unmarshal(cached, &out); err == nil {
+					out = filterExpiredOutItems(scope, out)
 					writeJSON(w, map[string]interface{}{"ok": true, "account": accountID, "now": time.Now().Unix(), "scope": scope, "items": out, "cached": true, "cooldown": true})
 					return
 				}
@@ -189,6 +191,9 @@ func handleActivityList(w http.ResponseWriter, r *http.Request) {
 		if expiredActivityID(it.ID) && (scope == "ongoing" || scope == "upcoming") {
 			continue
 		}
+		if scope == "ongoing" && it.EndTime > 0 && it.EndTime < now {
+			continue
+		}
 		out = append(out, &outItem{
 			ID: it.ID, Title: it.Title, StartTime: it.StartTime, EndTime: it.EndTime,
 			Group: it.ID%100 == 0, Ongoing: ongoing, Upcoming: upcoming, Finished: finished,
@@ -207,6 +212,27 @@ func expiredActivityID(id int64) bool {
 		return true
 	}
 	return false
+}
+
+func filterExpiredOutItems(scope string, items []*outItem) []*outItem {
+	if scope != "ongoing" && scope != "upcoming" {
+		return items
+	}
+	now := time.Now().Unix()
+	out := make([]*outItem, 0, len(items))
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		if expiredActivityID(it.ID) {
+			continue
+		}
+		if scope == "ongoing" && it.EndTime > 0 && it.EndTime < now {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 func actManualClaimPrefix(id int64) bool {
