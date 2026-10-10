@@ -29,10 +29,19 @@ func TestPetHuntRemainUsed(t *testing.T) {
 	}
 }
 
-func TestPetFeedRemainUsed(t *testing.T) {
+func TestPetParseFeedUsed(t *testing.T) {
 	const limit int64 = 16
-	remain, used, _ := petHuntRemainUsed(16, 0, limit)
-	if remain != 16 || used != 0 {
-		t.Fatalf("feed remaining full: remain/used=%d/%d want 16/0", remain, used)
+	cases := []struct {
+		f1, f2, want int64
+	}{
+		{0, 0, 0},
+		{0, 16, 0},
+		{5, 16, 5},
+		{16, 16, 16},
+	}
+	for _, c := range cases {
+		if got := petParseFeedUsed(c.f1, c.f2, limit); got != c.want {
+			t.Fatalf("feed used(%d,%d)=%d want %d", c.f1, c.f2, got, c.want)
+		}
 	}
 }

@@ -766,15 +766,12 @@ async function renderPanel(p) {
 /* ---------- 比熊之家 / 爪印手记（S3 萌宠成长日记，同一份数据） ---------- */
 function petCanFeed(nur) {
   if (!nur) return false
-  if (n(nur.feedCount) >= n(nur.feedLimit)) return false
-  if (n(nur.cakeHave) < n(nur.feedCost)) return false
-  return true
+  const cost = n(nur.feedCost) || 700
+  return n(nur.cakeHave) >= cost
 }
 function petFeedTitle(nur) {
   if (petCanFeed(nur)) return ''
-  if (n(nur.feedCount) >= n(nur.feedLimit)) return '今日投喂次数已满'
-  if (n(nur.cakeHave) < n(nur.feedCost)) return '元气糕不足 ' + n(nur.feedCost) + '，先种活动作物'
-  return ''
+  return '元气糕不足 ' + (n(nur.feedCost) || 700) + '，先种活动作物'
 }
 async function loadPet() {
   const a = acc(); if (!a) return

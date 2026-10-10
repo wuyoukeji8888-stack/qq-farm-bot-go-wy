@@ -226,14 +226,13 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 	ffs := readActFields(actBytes(fs, 2))
 	huntFs := readActFields(actBytes(fs, 3))
 
-	_, feedUsed, _ := petHuntRemainUsed(actNum(ffs, 1), actNum(ffs, 2), petDailyFeedLimit)
 	nur := PetNurture{
 		Initialized: actNum(nfs, 1) != 0, // cg_played
 		Stage:       actNum(nfs, 4),
 		Growth:      actNum(nfs, 3),
 		AdultGrowth: petAdultGrowth,
 		DogGranted:  actNum(nfs, 6) != 0,
-		FeedCount:   feedUsed,
+		FeedCount:   petParseFeedUsed(actNum(ffs, 1), actNum(ffs, 2), petDailyFeedLimit),
 		FeedLimit:   petDailyFeedLimit,
 		FeedCost:    petFeedCost,
 	}
@@ -241,10 +240,14 @@ func petBuildState(ctx context.Context, accountID string, body []byte) *PetState
 	nur.Adult = growthAdult || (nur.Stage == 2 && nur.Growth > 0)
 
 	bag := petReadItems(ctx, accountID, petFeedItemID, petStarItemID)
-	nur.CakeHave = bag[petFeedItemID]
-	nur.CanFeed = st.Active && nur.FeedCount < nur.FeedLimit && nur.CakeHave >= petFeedCost
+	cake := bag[petFeedItemID]
+	if n := petScanItemCount(petRaw, petFeedItemID); n > cake {
+		cake = n
+	}
+	nur.CakeHave = cake
+	nur.CanFeed = cake >= petFeedCost
 
-	st.Cake = bag[petFeedItemID]
+	st.Cake = cake
 	st.Star = bag[petStarItemID]
 	st.Nurture = nur
 	st.Hunt = petParseHunt(huntFs)
@@ -274,6 +277,37 @@ func petParseHunt(huntFs []actField) PetHunt {
 	h.Total = total
 	h.CanDraw = remain > 0
 	return h
+}
+
+func petParseFeedUsed(f1, f2, limit int64) int64 {
+	if f1 >= 0 && f1 <= limit {
+		return f1
+	}
+	_, used, _ := petHuntRemainUsed(f1, f2, limit)
+	return used
+}
+
+func petScanItemCount(buf []byte, itemID int64) int64 {
+	best := int64(0)
+	var walk func([]byte, int)
+	walk = func(b []byte, depth int) {
+		if depth > 8 || len(b) == 0 {
+			return
+		}
+		fs := readActFields(b)
+		id := actNum(fs, 1)
+		cnt := actNum(fs, 2)
+		if id == itemID && cnt > best {
+			best = cnt
+		}
+		for _, f := range fs {
+			if f.Wire == 2 {
+				walk(f.Bytes, depth+1)
+			}
+		}
+	}
+	walk(buf, 0)
+	return best
 }
 
 func petHuntRemainUsed(f1, f2, limit int64) (remain, used, total int64) {
